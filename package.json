@@ -1,0 +1,44 @@
+{
+  "name": "sc-elections-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for South Carolina elections: campaign finance, contributions, expenditures, SEI disclosures, and candidate filings",
+  "type": "module",
+  "bin": {
+    "sc-elections-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "south-carolina",
+    "elections",
+    "campaign-finance",
+    "ethics"
+  ],
+  "author": "Alex Reynolds",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asreynolds1000/sc-elections-mcp.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "node-html-parser": "^7.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.19.4",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
