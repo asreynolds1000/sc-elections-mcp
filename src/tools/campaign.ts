@@ -2,16 +2,25 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import {
   getCampaignSummary,
-  getCampaignReports,
   getCampaignReportDetails,
+  cachedGetCampaignSummary,
+  resolveCampaignContext,
   getContributions,
   getExpenditures,
+  getCampaignReports,
+  buildContributionSummary,
+  buildExpenditureSummary,
 } from '../api/ethics-client.js'
+import type { CampaignContext } from '../types.js'
+
+function formatHeader(context: CampaignContext, count: number, totalLabel: string, totalAmount: number): string {
+  return `Campaign: ${context.candidateName} — ${context.officeName} (campaignId: ${context.campaignId}, candidateFilerId: ${context.candidateFilerId}, status: ${context.campaignStatus})\n${count} ${totalLabel} totaling $${totalAmount.toFixed(2)}\n---`
+}
 
 export function registerCampaignTools(server: McpServer) {
   server.tool(
     'get_campaign_summary',
-    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers.',
+    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers. Note: an open campaign does not necessarily mean the person currently holds that office.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
     },
@@ -32,20 +41,29 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_campaign_reports',
-    'List all filed campaign disclosure reports for a specific campaign. Get campaignId from get_filer_profile (openOffices/closedOffices) or get_campaign_summary.',
+    'List filed campaign disclosure reports. campaign_id is optional — auto-resolved for single-campaign candidates, or use office hint to disambiguate (e.g. office="County Council").',
     {
-      campaign_id: z.number().describe('campaignId from profile openOffices/closedOffices'),
-      candidate_filer_id: z.number().describe('candidateFilerId from search_filers'),
+      candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
+      campaign_id: z.number().optional().describe('campaignId — optional, auto-resolved if candidate has one campaign'),
+      office: z.string().optional().describe('Office hint to disambiguate when multiple campaigns exist (e.g. "County Council", "Governor")'),
     },
-    async ({ campaign_id, candidate_filer_id }) => {
+    async ({ candidate_filer_id, campaign_id, office }) => {
       try {
-        const reports = await getCampaignReports(campaign_id, candidate_filer_id)
+        const summary = await cachedGetCampaignSummary(candidate_filer_id)
+        const resolved = resolveCampaignContext(summary, candidate_filer_id, campaign_id, office)
+        if ('error' in resolved) {
+          return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
+        }
+
+        const reports = await getCampaignReports(resolved.resolvedCampaignId, candidate_filer_id)
+        const header = `Campaign: ${resolved.context.candidateName} — ${resolved.context.officeName} (campaignId: ${resolved.context.campaignId}, status: ${resolved.context.campaignStatus})`
+
         return {
           content: [{
             type: 'text' as const,
             text: reports.length === 0
-              ? 'No campaign reports found'
-              : JSON.stringify(reports, null, 2),
+              ? `${header}\nNo campaign reports found`
+              : `${header}\n${reports.length} report(s)\n---\n${JSON.stringify(reports, null, 2)}`,
           }],
         }
       } catch (error) {
@@ -59,7 +77,7 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_campaign_report_details',
-    'Get detailed breakdown of a single campaign report including income categories, expenditure totals, balance, and filing metadata.',
+    'Get detailed breakdown of a single campaign report including income categories, expenditure totals, balance, and filing metadata. Use report_id from get_campaign_reports results.',
     {
       report_id: z.number().describe('Report ID from get_campaign_reports'),
     },
@@ -80,20 +98,59 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_contributions',
-    'Get all contributions for a specific campaign. Returns donor names, amounts, dates, types, and election cycles.',
+    'Get contributions for a candidate\'s campaign. Returns donor names, amounts, dates, types. Every response includes a metadata header identifying the candidate/office for verification.\n\ncampaign_id is optional: omit it for single-campaign candidates (auto-resolved). Provide it when a candidate has multiple campaigns, or use the office hint to disambiguate (e.g. office="County Council").\n\nUse summary=true for high-volume candidates — returns top 20 donors, totals by type, date range. Use year/min_amount to filter. Default limit is 200 records; pass limit=0 for all.',
     {
-      campaign_id: z.number().describe('campaignId from profile openOffices/closedOffices'),
-      candidate_filer_id: z.number().describe('candidateFilerId from search_filers'),
+      candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
+      campaign_id: z.number().optional().describe('campaignId — optional, auto-resolved if candidate has one campaign'),
+      office: z.string().optional().describe('Office hint to disambiguate when multiple campaigns exist (e.g. "County Council", "Governor")'),
+      summary: z.boolean().optional().describe('If true, return aggregated top-20 view instead of full records'),
+      year: z.number().optional().describe('Filter to contributions in this year only'),
+      min_amount: z.number().optional().describe('Filter to contributions >= this amount'),
+      limit: z.number().optional().describe('Max records to return (default 200, 0 for all)'),
     },
-    async ({ campaign_id, candidate_filer_id }) => {
+    async ({ candidate_filer_id, campaign_id, office, summary: wantSummary, year, min_amount, limit }) => {
       try {
-        const contributions = await getContributions(campaign_id, candidate_filer_id)
+        const campaignSummary = await cachedGetCampaignSummary(candidate_filer_id)
+        const resolved = resolveCampaignContext(campaignSummary, candidate_filer_id, campaign_id, office)
+        if ('error' in resolved) {
+          return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
+        }
+
+        let contributions = await getContributions(resolved.resolvedCampaignId, candidate_filer_id)
+
+        // Client-side filters
+        if (year) {
+          contributions = contributions.filter(c => {
+            if (!c.date) return false
+            return new Date(c.date).getFullYear() === year
+          })
+        }
+        if (min_amount) {
+          contributions = contributions.filter(c => c.credit >= min_amount)
+        }
+
+        if (wantSummary) {
+          const result = buildContributionSummary(contributions, resolved.context)
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+        }
+
+        // Full records with limit
+        const totalCount = contributions.length
+        const totalAmount = contributions.reduce((sum, c) => sum + c.credit, 0)
+        const effectiveLimit = limit === undefined ? 200 : limit
+        const limited = effectiveLimit > 0 ? contributions.slice(0, effectiveLimit) : contributions
+
+        const header = formatHeader(resolved.context, totalCount, 'contributions', totalAmount)
+        const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
+          ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all, or summary=true for aggregated view.`
+          : ''
+
         return {
           content: [{
             type: 'text' as const,
-            text: contributions.length === 0
-              ? 'No contributions found'
-              : JSON.stringify(contributions, null, 2),
+            text: totalCount === 0
+              ? `${header}\nNo contributions found`
+              : `${header}${limitNote}\n${JSON.stringify(limited, null, 2)}`,
           }],
         }
       } catch (error) {
@@ -107,20 +164,59 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_expenditures',
-    'Get all expenditures for a specific campaign. Returns vendor names, amounts, dates, types, and descriptions.',
+    'Get expenditures for a candidate\'s campaign. Returns vendor names, amounts, dates, types. Every response includes a metadata header identifying the candidate/office for verification.\n\ncampaign_id is optional: omit it for single-campaign candidates (auto-resolved). Provide it when a candidate has multiple campaigns, or use the office hint to disambiguate (e.g. office="County Council").\n\nUse summary=true for high-volume candidates — returns top 20 vendors, totals by type, date range. Use year/min_amount to filter. Default limit is 200 records; pass limit=0 for all.',
     {
-      campaign_id: z.number().describe('campaignId from profile openOffices/closedOffices'),
-      candidate_filer_id: z.number().describe('candidateFilerId from search_filers'),
+      candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
+      campaign_id: z.number().optional().describe('campaignId — optional, auto-resolved if candidate has one campaign'),
+      office: z.string().optional().describe('Office hint to disambiguate when multiple campaigns exist (e.g. "County Council", "Governor")'),
+      summary: z.boolean().optional().describe('If true, return aggregated top-20 view instead of full records'),
+      year: z.number().optional().describe('Filter to expenditures in this year only'),
+      min_amount: z.number().optional().describe('Filter to expenditures >= this amount'),
+      limit: z.number().optional().describe('Max records to return (default 200, 0 for all)'),
     },
-    async ({ campaign_id, candidate_filer_id }) => {
+    async ({ candidate_filer_id, campaign_id, office, summary: wantSummary, year, min_amount, limit }) => {
       try {
-        const expenditures = await getExpenditures(campaign_id, candidate_filer_id)
+        const campaignSummary = await cachedGetCampaignSummary(candidate_filer_id)
+        const resolved = resolveCampaignContext(campaignSummary, candidate_filer_id, campaign_id, office)
+        if ('error' in resolved) {
+          return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
+        }
+
+        let expenditures = await getExpenditures(resolved.resolvedCampaignId, candidate_filer_id)
+
+        // Client-side filters
+        if (year) {
+          expenditures = expenditures.filter(e => {
+            if (!e.date) return false
+            return new Date(e.date).getFullYear() === year
+          })
+        }
+        if (min_amount) {
+          expenditures = expenditures.filter(e => e.debit >= min_amount)
+        }
+
+        if (wantSummary) {
+          const result = buildExpenditureSummary(expenditures, resolved.context)
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+        }
+
+        // Full records with limit
+        const totalCount = expenditures.length
+        const totalAmount = expenditures.reduce((sum, e) => sum + e.debit, 0)
+        const effectiveLimit = limit === undefined ? 200 : limit
+        const limited = effectiveLimit > 0 ? expenditures.slice(0, effectiveLimit) : expenditures
+
+        const header = formatHeader(resolved.context, totalCount, 'expenditures', totalAmount)
+        const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
+          ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all, or summary=true for aggregated view.`
+          : ''
+
         return {
           content: [{
             type: 'text' as const,
-            text: expenditures.length === 0
-              ? 'No expenditures found'
-              : JSON.stringify(expenditures, null, 2),
+            text: totalCount === 0
+              ? `${header}\nNo expenditures found`
+              : `${header}${limitNote}\n${JSON.stringify(limited, null, 2)}`,
           }],
         }
       } catch (error) {

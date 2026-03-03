@@ -9,7 +9,7 @@ import { registerVremsTools } from './tools/vrems.js'
 
 const server = new McpServer({
   name: 'sc-elections-mcp',
-  version: '0.1.0',
+  version: '0.4.0',
 })
 
 // Ethics Commission tools (ethicsfiling.sc.gov)

@@ -6,6 +6,17 @@ All endpoints: `Content-Type: application/json`, no auth required.
 
 ---
 
+## Two Independent Systems
+
+| System | Base URL | IDs | Covers |
+|--------|----------|-----|--------|
+| **Ethics Commission** | `ethicsfiling.sc.gov/api` | `candidateFilerId`, `seiFilerId`, `campaignId` | Campaign finance, contributions, expenditures, SEI disclosures |
+| **VREMS / SC Votes** | `vrems.scvotes.sc.gov` | `electionId`, `candidateId` | Election listings, candidate filings, contact info |
+
+These systems **do not share IDs**. Bridge between them by searching names. See [Caveats](README.md#caveats) for details on name matching and office name differences.
+
+---
+
 ## 1. Search & Lookup
 
 ### Search Filers by Name
@@ -550,6 +561,30 @@ Search by name → candidateFilerId + seiFilerId
               Expenditures            Income Sources
               Reports                 Gifts, Travel, etc.
 ```
+
+## officeId == campaignId Mapping
+
+In the Campaign Report Summary endpoint, `CampaignOfficeReport.officeId` is the same value used as `campaignId` in per-campaign endpoints (contributions, expenditures, reports). This was confirmed empirically with McMaster's data: his Attorney General campaign has `officeId: 1393` in the summary response, and `campaignId: 1393` works for fetching contributions.
+
+The `resolveCampaignContext` helper in `ethics-client.ts` relies on this mapping to auto-resolve campaigns. If this breaks for edge cases, the function returns a prescriptive error listing available campaigns with their IDs.
+
+## Office Name Cache (v0.4.0)
+
+The `listOfficeNames()` function exposes a cache of distinct office name strings from the filer database. The cache is populated as a side effect of the 26-letter sweep used by `searchFilersByOffice()`. The sweep and office name discovery share the same `sweepAllFilers()` function — whichever runs first populates the cache for both.
+
+**Important:** The cached names come from `EthicsFiler.officeName`, which is a filer-reported field that can contain comma-separated values for multiple offices (e.g. "District 87 House, Governor"). The cache splits these into individual entries. These names may differ slightly from `CampaignOfficeReport.officeName` used by `resolveCampaignContext`. Use them for discovery and partial matching, not as guaranteed exact inputs.
+
+## Default Limits (v0.4.0)
+
+| Tool | Default limit | Override |
+|------|--------------|----------|
+| `search_filers` | 50 | `limit=0` for all |
+| `search_candidates` | 50 | `limit=0` for all |
+| `list_elections` | 50 | `limit=0` for all |
+| `search_expenditures` | 200 | `limit=0` for all |
+| `search_contributions` | 200 | `limit=0` for all |
+| `get_contributions` | 200 | `limit=0` for all |
+| `get_expenditures` | 200 | `limit=0` for all |
 
 ## Known Quirks
 

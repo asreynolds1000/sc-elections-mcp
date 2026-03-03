@@ -19,6 +19,13 @@ export interface EthicsFiler {
   percentageAccuracy: number
 }
 
+/** Result from office-based filer search (26-letter sweep) */
+export interface OfficeFilerResult {
+  filers: EthicsFiler[]
+  totalSearched: number
+  totalFailed: number
+}
+
 /** Filer profile with positions and offices */
 export interface FilerProfile {
   name: string
@@ -82,6 +89,53 @@ export interface CampaignOfficeReport {
   balance: number
   officeClosedDate: string | null
   contributions: number
+}
+
+/** Metadata header prepended to contribution/expenditure responses for verification */
+export interface CampaignContext {
+  candidateName: string
+  officeName: string
+  campaignId: number
+  candidateFilerId: number
+  campaignStatus: 'open' | 'closed'
+}
+
+/** Aggregated contribution view — top donors, totals by type */
+export interface ContributionSummary {
+  context: CampaignContext
+  totalCount: number
+  totalAmount: number
+  dateRange: { earliest: string; latest: string } | null
+  byType: Record<string, { count: number; amount: number }>
+  selfFundingTotal: number
+  topDonors: { name: string; totalAmount: number; count: number }[]
+}
+
+/** Aggregated expenditure view — top vendors, totals by type */
+export interface ExpenditureSummary {
+  context: CampaignContext
+  totalCount: number
+  totalAmount: number
+  dateRange: { earliest: string; latest: string } | null
+  byType: Record<string, { count: number; amount: number }>
+  topVendors: { name: string; totalAmount: number; count: number }[]
+}
+
+/** Office name with extracted district/body for normalization */
+export interface NormalizedOffice {
+  raw: string
+  normalized: string
+  district?: string
+  body?: string
+}
+
+/** EthicsFiler enriched with campaign summary data */
+export interface EnrichedFiler extends EthicsFiler {
+  campaignStatus?: 'open' | 'closed'
+  balance?: number
+  campaignOfficeName?: string
+  campaignId?: number
+  normalizedOffice?: NormalizedOffice
 }
 
 /** Individual campaign report entry */

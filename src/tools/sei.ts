@@ -5,7 +5,7 @@ import { getSeiDetails } from '../api/ethics-client.js'
 export function registerSeiTools(server: McpServer) {
   server.tool(
     'get_sei_details',
-    'Get full Statement of Economic Interest report: positions held, business interests, private and government income, family income, gifts, travel, government contracts, creditors, lobbyist contacts, regulated business associations, and property transactions. Returns the most recent report by default.',
+    'Get full SEI report: positions, business interests, income, gifts, travel, contracts, creditors, lobbyist contacts, property transactions. Use seiFilerId from search_filers. SEI reveals financial interests, not campaign spending. Returns most recent report by default.',
     {
       sei_filer_id: z.number().describe('seiFilerId from search_filers results'),
       report_year: z.number().optional().describe('Specific report year. Omit for most recent.'),

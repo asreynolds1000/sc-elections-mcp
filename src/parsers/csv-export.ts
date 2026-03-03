@@ -7,16 +7,32 @@ function parseCsvLine(line: string): string[] {
   const fields: string[] = []
   let current = ''
   let inQuotes = false
+  let i = 0
 
-  for (const char of line) {
-    if (char === '"') {
-      inQuotes = !inQuotes
-    } else if (char === ',' && !inQuotes) {
+  while (i < line.length) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          // RFC 4180: "" inside quoted field = literal "
+          current += '"'
+          i += 2
+          continue
+        }
+        // End of quoted field
+        inQuotes = false
+      } else {
+        current += ch
+      }
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
       fields.push(current.trim())
       current = ''
     } else {
-      current += char
+      current += ch
     }
+    i++
   }
   fields.push(current.trim())
   return fields

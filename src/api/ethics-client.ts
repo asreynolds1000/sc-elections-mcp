@@ -2,15 +2,21 @@ import type {
   EthicsFiler,
   FilerProfile,
   CampaignSummary,
+  CampaignOfficeReport,
   CampaignReport,
   CampaignReportDetails,
   CampaignContribution,
   CampaignExpenditure,
+  CampaignContext,
+  ContributionSummary,
+  ExpenditureSummary,
+  NormalizedOffice,
   CrossSearchExpenditure,
   CrossSearchContribution,
   SeiReport,
   SeiReportBody,
   SeiDetails,
+  OfficeFilerResult,
 } from '../types.js'
 
 const BASE = 'https://ethicsfiling.sc.gov/api'
@@ -46,6 +52,108 @@ export async function getFilerProfile(
   })
   if (!response.ok) throw new Error(`Profile request failed: ${response.status}`)
   return response.json()
+}
+
+function parseDate(dateStr: string): number {
+  if (!dateStr) return 0
+  const [month, day, year] = dateStr.split('/')
+  return new Date(+year, +month - 1, +day).getTime()
+}
+
+// Office name cache — populated as side effect of sweepAllFilers()
+const officeNameCache = new Set<string>()
+let officeNameCachePopulated = false
+
+async function sweepAllFilers(): Promise<{ allResults: EthicsFiler[]; failed: number }> {
+  const letters = 'abcdefghijklmnopqrstuvwxyz'.split('')
+  const BATCH_SIZE = 6
+  const TIMEOUT_MS = 10_000
+  const allResults: EthicsFiler[] = []
+  let failed = 0
+
+  for (let i = 0; i < letters.length; i += BATCH_SIZE) {
+    const batch = letters.slice(i, i + BATCH_SIZE)
+    const settled = await Promise.allSettled(
+      batch.map(async (letter) => {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
+        try {
+          const response = await fetch(`${BASE}/Ethics/Get/Public/Search/By/Filer/Name/`, {
+            method: 'POST',
+            headers: HEADERS,
+            body: JSON.stringify(letter),
+            signal: controller.signal,
+          })
+          if (!response.ok) return []
+          const data = await response.json()
+          return (data.result || []) as EthicsFiler[]
+        } finally {
+          clearTimeout(timeout)
+        }
+      })
+    )
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        allResults.push(...result.value)
+      } else {
+        failed++
+      }
+    }
+  }
+
+  // Populate office name cache from all filer results
+  for (const filer of allResults) {
+    if (filer.officeName) {
+      for (const part of filer.officeName.split(',')) {
+        const trimmed = part.trim()
+        if (trimmed) officeNameCache.add(trimmed)
+      }
+    }
+  }
+  officeNameCachePopulated = true
+
+  return { allResults, failed }
+}
+
+export async function searchFilersByOffice(officeName: string): Promise<OfficeFilerResult> {
+  const { allResults, failed } = await sweepAllFilers()
+
+  // Filter by office name (case-insensitive partial match)
+  const needle = officeName.toLowerCase()
+  const matching = allResults.filter(f =>
+    f.officeName?.toLowerCase().includes(needle)
+  )
+
+  // Deduplicate: prefer record with most recent submission per person
+  const seen = new Map<string, EthicsFiler>()
+  for (const filer of matching) {
+    const key = filer.universalUserId > 0
+      ? `u-${filer.universalUserId}`
+      : `c-${filer.candidateFilerId}-s-${filer.seiFilerId}`
+    const existing = seen.get(key)
+    if (!existing || parseDate(filer.lastSubmission) > parseDate(existing.lastSubmission)) {
+      seen.set(key, filer)
+    }
+  }
+
+  // Sort by most recent submission descending
+  const filers = [...seen.values()].sort((a, b) =>
+    parseDate(b.lastSubmission) - parseDate(a.lastSubmission)
+  )
+
+  return { filers, totalSearched: 26, totalFailed: failed }
+}
+
+export async function listOfficeNames(keyword?: string): Promise<string[]> {
+  if (!officeNameCachePopulated) {
+    await sweepAllFilers()
+  }
+  let names = [...officeNameCache].sort()
+  if (keyword) {
+    const needle = keyword.toLowerCase()
+    names = names.filter(n => n.toLowerCase().includes(needle))
+  }
+  return names
 }
 
 // ============================================================
@@ -116,6 +224,316 @@ export async function getExpenditures(
   })
   if (!response.ok) return []
   return response.json()
+}
+
+// ============================================================
+// Campaign Finance — Helpers & Cache
+// ============================================================
+
+const campaignSummaryCache = new Map<number, { data: CampaignSummary; timestamp: number }>()
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+export async function cachedGetCampaignSummary(candidateFilerId: number): Promise<CampaignSummary> {
+  const cached = campaignSummaryCache.get(candidateFilerId)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data
+  }
+  const data = await getCampaignSummary(candidateFilerId)
+  campaignSummaryCache.set(candidateFilerId, { data, timestamp: Date.now() })
+  return data
+}
+
+export function normalizeOfficeName(raw: string): NormalizedOffice {
+  if (!raw) return { raw, normalized: raw }
+
+  let district: string | undefined
+  let body: string | undefined
+
+  // Extract district number
+  const distMatch = raw.match(/District\s+(\d+)/i) ||
+    raw.match(/Dist\.?\s*(\d+)/i) ||
+    raw.match(/Seat\s+(\d+)/i)
+  if (distMatch) {
+    district = distMatch[1]
+  }
+
+  // Extract body
+  const bodyPatterns: [RegExp, string][] = [
+    [/County\s+Council/i, 'County Council'],
+    [/State\s+House/i, 'State House'],
+    [/State\s+Senate/i, 'State Senate'],
+    [/Governor/i, 'Governor'],
+    [/Sheriff/i, 'Sheriff'],
+    [/Solicitor/i, 'Solicitor'],
+    [/Attorney\s+General/i, 'Attorney General'],
+    [/Lt\.?\s*Governor/i, 'Lt Governor'],
+    [/Secretary\s+of\s+State/i, 'Secretary of State'],
+    [/Comptroller/i, 'Comptroller General'],
+    [/Treasurer/i, 'State Treasurer'],
+    [/Superintendent/i, 'Superintendent of Education'],
+    [/School\s+Board/i, 'School Board'],
+    [/City\s+Council/i, 'City Council'],
+    [/Mayor/i, 'Mayor'],
+    [/Probate\s+Judge/i, 'Probate Judge'],
+    [/Auditor/i, 'Auditor'],
+    [/Coroner/i, 'Coroner'],
+    [/Clerk\s+of\s+Court/i, 'Clerk of Court'],
+  ]
+
+  for (const [pattern, name] of bodyPatterns) {
+    if (pattern.test(raw)) {
+      body = name
+      break
+    }
+  }
+
+  // Build normalized name
+  let normalized = raw
+    .replace(/^Other\s+Office,?\s*/i, '')
+    .replace(/^District\s+\d+\s*,?\s*/i, '')
+    .trim()
+
+  if (body && district) {
+    // Check if county name is present
+    const countyMatch = raw.match(/(\w+)\s+County/i)
+    if (countyMatch) {
+      normalized = `${countyMatch[1]} ${body} District ${district}`
+    } else {
+      normalized = `${body} District ${district}`
+    }
+  } else if (!body) {
+    normalized = raw
+  }
+
+  return { raw, normalized, district, body }
+}
+
+function extractDistrictNumber(text: string): string | undefined {
+  const m = text.match(/District\s+(\d+)/i) ||
+    text.match(/Dist\.?\s*(\d+)/i) ||
+    text.match(/Seat\s+(\d+)/i)
+  return m?.[1]
+}
+
+export function resolveCampaignContext(
+  summary: CampaignSummary,
+  candidateFilerId: number,
+  campaignId?: number,
+  officeHint?: string,
+): { context: CampaignContext; resolvedCampaignId: number } | { error: string } {
+  const allOffices: (CampaignOfficeReport & { status: 'open' | 'closed' })[] = [
+    ...summary.openReports.map(r => ({ ...r, status: 'open' as const })),
+    ...summary.closedReports.map(r => ({ ...r, status: 'closed' as const })),
+  ]
+
+  const candidateName = summary.name || 'Unknown'
+
+  function makeContext(office: CampaignOfficeReport & { status: 'open' | 'closed' }): {
+    context: CampaignContext
+    resolvedCampaignId: number
+  } {
+    return {
+      context: {
+        candidateName,
+        officeName: office.officeName,
+        campaignId: office.officeId,
+        candidateFilerId,
+        campaignStatus: office.status,
+      },
+      resolvedCampaignId: office.officeId,
+    }
+  }
+
+  function officeListError(offices: typeof allOffices): string {
+    const lines = offices.map(o =>
+      `  - ${o.officeName} (campaignId: ${o.officeId}, ${o.status}, balance: $${o.balance.toFixed(2)})`
+    )
+    return `Multiple campaigns found for this candidate. Specify campaign_id or office hint:\n${lines.join('\n')}`
+  }
+
+  // 1. If campaignId provided, validate it exists
+  if (campaignId !== undefined) {
+    const match = allOffices.find(o => o.officeId === campaignId)
+    if (!match) {
+      const lines = allOffices.map(o =>
+        `  - ${o.officeName} (campaignId: ${o.officeId}, ${o.status})`
+      )
+      return {
+        error: `Campaign ID ${campaignId} not found for this candidate. Available campaigns:\n${lines.join('\n')}`,
+      }
+    }
+    return makeContext(match)
+  }
+
+  // 2. If officeHint provided, try to narrow
+  if (officeHint) {
+    const hint = officeHint.toLowerCase()
+    let matches = allOffices.filter(o => o.officeName.toLowerCase().includes(hint))
+
+    if (matches.length === 1) return makeContext(matches[0])
+
+    if (matches.length > 1) {
+      // Try district extraction to disambiguate
+      const hintDistrict = extractDistrictNumber(officeHint)
+      if (hintDistrict) {
+        const districtMatches = matches.filter(o =>
+          extractDistrictNumber(o.officeName) === hintDistrict
+        )
+        if (districtMatches.length === 1) return makeContext(districtMatches[0])
+      }
+      // Prefer open over closed
+      const openMatches = matches.filter(o => o.status === 'open')
+      if (openMatches.length === 1) return makeContext(openMatches[0])
+      if (openMatches.length > 1) return { error: officeListError(openMatches) }
+      // All closed — fall through to no-hint logic with filtered set
+      matches = matches.sort((a, b) =>
+        new Date(b.initialReportFiledDate).getTime() - new Date(a.initialReportFiledDate).getTime()
+      )
+      return makeContext(matches[0])
+    }
+    // Zero matches — fall through to no-hint logic
+  }
+
+  // 3. No campaignId, no usable hint — auto-resolve
+  const open = allOffices.filter(o => o.status === 'open')
+  const closed = allOffices.filter(o => o.status === 'closed')
+
+  if (open.length === 1) return makeContext(open[0])
+  if (open.length === 0 && closed.length === 1) return makeContext(closed[0])
+  if (open.length === 0 && closed.length > 1) {
+    // Use most recent by initialReportFiledDate
+    const sorted = [...closed].sort((a, b) =>
+      new Date(b.initialReportFiledDate).getTime() - new Date(a.initialReportFiledDate).getTime()
+    )
+    return makeContext(sorted[0])
+  }
+  if (open.length > 1) return { error: officeListError(open) }
+
+  // No offices at all
+  return { error: 'No campaign offices found for this candidate.' }
+}
+
+const SELF_FUNDING_TYPES = ['personal contribution', 'candidate loan', 'personal loan']
+
+export function buildContributionSummary(
+  contributions: CampaignContribution[],
+  context: CampaignContext,
+): ContributionSummary {
+  const byDonor = new Map<string, { totalAmount: number; count: number }>()
+  const byType: Record<string, { count: number; amount: number }> = {}
+  let totalAmount = 0
+  let selfFundingTotal = 0
+  const dates: string[] = []
+
+  for (const c of contributions) {
+    totalAmount += c.credit
+    if (c.date) dates.push(c.date)
+
+    // Aggregate by donor
+    const donorKey = c.paidBy.trim().toLowerCase()
+    const existing = byDonor.get(donorKey)
+    if (existing) {
+      existing.totalAmount += c.credit
+      existing.count++
+    } else {
+      byDonor.set(donorKey, { totalAmount: c.credit, count: 1 })
+    }
+
+    // Aggregate by type
+    const typeKey = c.type || 'Unknown'
+    if (!byType[typeKey]) byType[typeKey] = { count: 0, amount: 0 }
+    byType[typeKey].count++
+    byType[typeKey].amount += c.credit
+
+    // Self-funding detection
+    if (SELF_FUNDING_TYPES.includes(c.type.toLowerCase())) {
+      selfFundingTotal += c.credit
+    }
+  }
+
+  // Sort donors by total, take top 20
+  const topDonors = [...byDonor.entries()]
+    .map(([name, data]) => ({
+      name: contributions.find(c => c.paidBy.trim().toLowerCase() === name)?.paidBy.trim() || name,
+      totalAmount: data.totalAmount,
+      count: data.count,
+    }))
+    .sort((a, b) => b.totalAmount - a.totalAmount)
+    .slice(0, 20)
+
+  // Date range
+  let dateRange: ContributionSummary['dateRange'] = null
+  if (dates.length > 0) {
+    const sorted = dates.sort()
+    dateRange = { earliest: sorted[0], latest: sorted[sorted.length - 1] }
+  }
+
+  return {
+    context,
+    totalCount: contributions.length,
+    totalAmount,
+    dateRange,
+    byType,
+    selfFundingTotal,
+    topDonors,
+  }
+}
+
+export function buildExpenditureSummary(
+  expenditures: CampaignExpenditure[],
+  context: CampaignContext,
+): ExpenditureSummary {
+  const byVendor = new Map<string, { totalAmount: number; count: number }>()
+  const byType: Record<string, { count: number; amount: number }> = {}
+  let totalAmount = 0
+  const dates: string[] = []
+
+  for (const e of expenditures) {
+    totalAmount += e.debit
+    if (e.date) dates.push(e.date)
+
+    // Aggregate by vendor
+    const vendorKey = e.paidTo.trim().toLowerCase()
+    const existing = byVendor.get(vendorKey)
+    if (existing) {
+      existing.totalAmount += e.debit
+      existing.count++
+    } else {
+      byVendor.set(vendorKey, { totalAmount: e.debit, count: 1 })
+    }
+
+    // Aggregate by type
+    const typeKey = e.type || 'Unknown'
+    if (!byType[typeKey]) byType[typeKey] = { count: 0, amount: 0 }
+    byType[typeKey].count++
+    byType[typeKey].amount += e.debit
+  }
+
+  // Sort vendors by total, take top 20
+  const topVendors = [...byVendor.entries()]
+    .map(([name, data]) => ({
+      name: expenditures.find(e => e.paidTo.trim().toLowerCase() === name)?.paidTo.trim() || name,
+      totalAmount: data.totalAmount,
+      count: data.count,
+    }))
+    .sort((a, b) => b.totalAmount - a.totalAmount)
+    .slice(0, 20)
+
+  // Date range
+  let dateRange: ExpenditureSummary['dateRange'] = null
+  if (dates.length > 0) {
+    const sorted = dates.sort()
+    dateRange = { earliest: sorted[0], latest: sorted[sorted.length - 1] }
+  }
+
+  return {
+    context,
+    totalCount: expenditures.length,
+    totalAmount,
+    dateRange,
+    byType,
+    topVendors,
+  }
 }
 
 // ============================================================

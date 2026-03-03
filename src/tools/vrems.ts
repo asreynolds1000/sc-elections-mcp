@@ -6,21 +6,41 @@ import { parseCandidateDetail } from '../parsers/candidate-detail.js'
 export function registerVremsTools(server: McpServer) {
   server.tool(
     'list_elections',
-    'List SC elections by type and year. Returns election IDs needed for search_candidates. Three types: General (statewide primaries + general), Special, Local.',
+    'List SC elections by type and year. Returns election IDs needed for search_candidates. Types: General (statewide primaries + general), Special, Local. Use keyword to filter by location or type (e.g. "Sumter", "Primary"). Default limit 50 results (0 for all) — Local elections can have 200+ entries statewide. Start here for race research.',
     {
       election_type: z.enum(['General', 'Special', 'Local']).describe('Election type'),
       year: z.number().optional().describe('Specific year. Omit to get available years for this type.'),
+      keyword: z.string().optional().describe('Filter election names containing this keyword (case-insensitive, e.g. "Sumter", "Greenville", "Primary")'),
+      limit: z.number().optional().describe('Max results to return (default 50, 0 for all). Local elections can have 200+ entries per year.'),
     },
-    async ({ election_type, year }) => {
+    async ({ election_type, year, keyword, limit }) => {
       try {
         if (year) {
-          const elections = await getElections(election_type, year)
+          let elections = await getElections(election_type, year)
+
+          // Apply keyword filter
+          if (keyword) {
+            const needle = keyword.toLowerCase()
+            elections = elections.filter((e: any) =>
+              (e.electionName || '').toLowerCase().includes(needle) ||
+              (e.displayName || '').toLowerCase().includes(needle)
+            )
+          }
+
+          // Apply limit
+          const effectiveLimit = limit === undefined ? 50 : limit
+          const totalCount = elections.length
+          const limited = effectiveLimit > 0 ? elections.slice(0, effectiveLimit) : elections
+          const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
+            ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all.`
+            : ''
+
           return {
             content: [{
               type: 'text' as const,
-              text: elections.length === 0
-                ? `No ${election_type} elections found for ${year}`
-                : JSON.stringify(elections, null, 2),
+              text: limited.length === 0
+                ? `No ${election_type} elections found for ${year}${keyword ? ` matching "${keyword}"` : ''}`
+                : `${totalCount} election(s)${keyword ? ` matching "${keyword}"` : ''}:${limitNote}\n${JSON.stringify(limited, null, 2)}`,
             }],
           }
         } else {
@@ -45,7 +65,7 @@ export function registerVremsTools(server: McpServer) {
 
   server.tool(
     'search_candidates',
-    'Search for candidates who filed in a specific SC election. Returns rich data including contact info (phone, email), filing fee, address, and status. Get election_id from list_elections first.',
+    'Search for candidates in a specific SC election. Returns contact info, filing fee, address, status. Default limit 50 results (0 for all) — statewide elections can return 500+. Get election_id from list_elections. To bridge to campaign finance, use search_filers with candidate names — the two systems don\'t share IDs. Try last name only if no match.',
     {
       election_id: z.string().describe('Election ID from list_elections results'),
       office: z.string().optional().describe('Office filter code (-1 for all). Common: 380=State House, 379=State Senate, 469=County Council District'),
@@ -54,8 +74,9 @@ export function registerVremsTools(server: McpServer) {
       status: z.string().optional().describe('Status filter: All, Active, Elected, DefeatedInPrimary, Withdrew, etc.'),
       first_name: z.string().optional().describe('Candidate first name search'),
       last_name: z.string().optional().describe('Candidate last name search'),
+      limit: z.number().optional().describe('Max candidates to return (default 50, 0 for all). Statewide elections can return hundreds.'),
     },
-    async ({ election_id, office, county, party, status, first_name, last_name }) => {
+    async ({ election_id, office, county, party, status, first_name, last_name, limit }) => {
       try {
         const result = await searchCandidates({
           electionId: election_id,
@@ -67,20 +88,32 @@ export function registerVremsTools(server: McpServer) {
           lastName: last_name,
         })
 
+        const effectiveLimit = limit === undefined ? 50 : limit
+
         if (result.candidates.length > 0) {
+          const totalCount = result.candidates.length
+          const limited = effectiveLimit > 0 ? result.candidates.slice(0, effectiveLimit) : result.candidates
+          const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
+            ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all.`
+            : ''
           return {
             content: [{
               type: 'text' as const,
-              text: `${result.candidates.length} candidate(s) found (rich data from CSV export):\n${JSON.stringify(result.candidates, null, 2)}`,
+              text: `${totalCount} candidate(s) found (rich data from CSV export):${limitNote}\n${JSON.stringify(limited, null, 2)}`,
             }],
           }
         }
 
         if (result.fallback && result.fallback.length > 0) {
+          const totalCount = result.fallback.length
+          const limited = effectiveLimit > 0 ? result.fallback.slice(0, effectiveLimit) : result.fallback
+          const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
+            ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all.`
+            : ''
           return {
             content: [{
               type: 'text' as const,
-              text: `${result.fallback.length} candidate(s) found (basic data from HTML — CSV export unavailable):\n${JSON.stringify(result.fallback, null, 2)}`,
+              text: `${totalCount} candidate(s) found (basic data from HTML — CSV export unavailable):${limitNote}\n${JSON.stringify(limited, null, 2)}`,
             }],
           }
         }
@@ -99,7 +132,7 @@ export function registerVremsTools(server: McpServer) {
 
   server.tool(
     'get_candidate_details',
-    'Get detailed filing information for a specific candidate including address, filing date, status, and downloadable document links (filing form PDF, fee receipt). Use candidateId and electionId from search_candidates.',
+    'Get filing details for a specific candidate: address, filing date, status, document links (filing form PDF, fee receipt). Use candidateId and electionId from search_candidates. candidateId is only available from HTML results, not CSV export.',
     {
       candidate_id: z.string().describe('Candidate ID from search_candidates results'),
       election_id: z.string().describe('Election ID from list_elections or search_candidates results'),

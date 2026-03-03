@@ -42,33 +42,48 @@ sc-elections-mcp/
 └── API-REFERENCE.md
 ```
 
-## MCP Tools (13 tools)
+## MCP Tools (15 tools — at recommended ceiling, split before adding more)
 
 ### Search & Lookup (Ethics)
-1. **search_filers** — Search for candidates/officials by name
-2. **get_filer_profile** — Full profile (address, positions, offices)
+1. **search_filers** — Search for candidates/officials by name. Default limit 50 (0 for all). Use last name only for best results.
+2. **list_filers_by_office** — Find all filers for a specific office (sweeps entire database, ~10-15 sec). With `recent_only: true`, enriches results with campaign balance, status, and campaignId — skip get_campaign_summary for enriched results.
+3. **get_filer_profile** — Full profile (address, positions, offices)
+4. **list_office_names** — Discover exact office name strings from the filer database. Use these with list_filers_by_office for precise matching. Optional keyword filter. First call triggers sweep (~10-15 sec), subsequent calls instant from cache.
 
 ### Campaign Finance (Ethics)
-3. **get_campaign_summary** — Report summary with balances, open/closed offices
-4. **get_campaign_reports** — List all filed campaign disclosure reports
-5. **get_campaign_report_details** — Detailed breakdown of a single report
-6. **get_contributions** — All contributions for a specific campaign
-7. **get_expenditures** — All expenditures for a specific campaign
+5. **get_campaign_summary** — Report summary with balances, open/closed offices
+6. **get_campaign_reports** — List filed reports. campaign_id optional (auto-resolved), office hint to disambiguate
+7. **get_campaign_report_details** — Detailed breakdown of a single report
+8. **get_contributions** — Contributions with metadata header for verification. campaign_id optional (auto-resolved), office hint, summary mode (top 20 donors), year/min_amount/limit filters
+9. **get_expenditures** — Expenditures with metadata header. campaign_id optional, office hint, summary mode (top 20 vendors), year/min_amount/limit filters
 
 ### Cross-Candidate Search (Ethics)
-8. **search_expenditures** — Search expenditures across ALL candidates by vendor, candidate, office, year, amount
-9. **search_contributions** — Search contributions across ALL candidates
+10. **search_expenditures** — Search expenditures across ALL candidates by vendor, candidate, office, year, amount. Default limit 200 (0 for all).
+11. **search_contributions** — Search contributions across ALL candidates. Default limit 200. Office filter is broken server-side; combine with another filter.
 
 ### Statement of Economic Interest (Ethics)
-10. **get_sei_details** — Full SEI report: positions, business interests, income, gifts, travel, creditors, lobbyist contacts
+12. **get_sei_details** — Full SEI report: positions, business interests, income, gifts, travel, creditors, lobbyist contacts
 
 ### Candidate Filings (VREMS)
-11. **list_elections** — Browse SC elections by type (General/Special/Local) and year
-12. **search_candidates** — Search candidates in an election. Rich data via CSV export: name, office, party, status, address, phone, email, filing fee
-13. **get_candidate_details** — Candidate filing details with document download links (filing form PDF, fee receipt)
+13. **list_elections** — Browse SC elections by type (General/Special/Local) and year. Keyword filter + default limit 50. Use keyword to filter by location (e.g. "Sumter").
+14. **search_candidates** — Search candidates in an election. Default limit 50 (0 for all). Rich data via CSV export.
+15. **get_candidate_details** — Candidate filing details with document download links (filing form PDF, fee receipt)
+
+## Recommended Workflow for Broad Candidate Discovery
+
+For questions like "who is running for [office]":
+
+1. **list_office_names** (if unsure of office format) — discover exact office name strings (e.g. "District 50 House" not "State House District 50"). First call ~10-15 sec, then cached.
+2. **list_filers_by_office** with `recent_only: true` — sweeps the entire Ethics database (~10-15 sec), returns enriched results including campaign balance, status, and campaignId. No need for a separate `get_campaign_summary` call.
+3. **get_contributions/get_expenditures** — campaign_id is optional; auto-resolved for single-campaign candidates. Use `summary: true` for high-volume campaigns. Every response includes a metadata header for verification.
+4. **Cross-reference with VREMS** — once the filing period opens, `search_candidates` (with keyword filter on `list_elections` to find the right election) provides the authoritative candidate list with contact info.
+5. **Web search for unfiled candidates** — catches candidates who announced but haven't filed yet.
+
+The Ethics cross-search tools (search_expenditures/search_contributions) are useful for financial sweeps but have office name inconsistencies. The contribution office filter is broken server-side — use `list_filers_by_office` + per-candidate `get_contributions` instead.
 
 ## Key API Quirks
 
+- **Office name inconsistency** (CRITICAL): The Ethics API uses different office names across endpoints. A county council candidate may appear under a shortened or coded office name in expenditure/contribution results vs their full office name in their profile. When using the office filter in cross-search tools, use the broadest match possible (e.g. "greenville" not "greenville county council") or omit office and search by candidate name instead.
 - Ethics name search body is a raw JSON string (`"haley"`), not `{"name": "haley"}`
 - Ethics uses mixed POST/PUT (Contributor/Vendor grids use PUT)
 - VREMS candidate search returns HTML, not JSON — parsed with node-html-parser
