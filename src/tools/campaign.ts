@@ -5,6 +5,7 @@ import {
   getCampaignReportDetails,
   cachedGetCampaignSummary,
   resolveCampaignContext,
+  resolveCandidateName,
   getContributions,
   getExpenditures,
   getCampaignReports,
@@ -111,7 +112,14 @@ export function registerCampaignTools(server: McpServer) {
     async ({ candidate_filer_id, campaign_id, office, summary: wantSummary, year, min_amount, limit }) => {
       try {
         const campaignSummary = await cachedGetCampaignSummary(candidate_filer_id)
-        const resolved = resolveCampaignContext(campaignSummary, candidate_filer_id, campaign_id, office)
+
+        // Resolve candidate name when summary.name is null
+        let candidateNameOverride: string | undefined
+        if (!campaignSummary.name) {
+          candidateNameOverride = await resolveCandidateName(candidate_filer_id)
+        }
+
+        const resolved = resolveCampaignContext(campaignSummary, candidate_filer_id, campaign_id, office, candidateNameOverride)
         if ('error' in resolved) {
           return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
         }
@@ -177,7 +185,14 @@ export function registerCampaignTools(server: McpServer) {
     async ({ candidate_filer_id, campaign_id, office, summary: wantSummary, year, min_amount, limit }) => {
       try {
         const campaignSummary = await cachedGetCampaignSummary(candidate_filer_id)
-        const resolved = resolveCampaignContext(campaignSummary, candidate_filer_id, campaign_id, office)
+
+        // Resolve candidate name when summary.name is null
+        let candidateNameOverride: string | undefined
+        if (!campaignSummary.name) {
+          candidateNameOverride = await resolveCandidateName(candidate_filer_id)
+        }
+
+        const resolved = resolveCampaignContext(campaignSummary, candidate_filer_id, campaign_id, office, candidateNameOverride)
         if ('error' in resolved) {
           return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
         }

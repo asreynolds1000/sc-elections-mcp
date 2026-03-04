@@ -6,16 +6,18 @@ import { registerCampaignTools } from './tools/campaign.js'
 import { registerCrossSearchTools } from './tools/cross-search.js'
 import { registerSeiTools } from './tools/sei.js'
 import { registerVremsTools } from './tools/vrems.js'
+import { registerOverlapTools } from './tools/overlap.js'
 
 const server = new McpServer({
   name: 'sc-elections-mcp',
-  version: '0.4.0',
+  version: '0.5.0',
 })
 
 // Ethics Commission tools (ethicsfiling.sc.gov)
 registerSearchTools(server)
 registerCampaignTools(server)
 registerCrossSearchTools(server)
+registerOverlapTools(server)
 registerSeiTools(server)
 
 // SC Votes / VREMS tools (vrems.scvotes.sc.gov)

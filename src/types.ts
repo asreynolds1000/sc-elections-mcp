@@ -129,11 +129,25 @@ export interface NormalizedOffice {
   body?: string
 }
 
-/** EthicsFiler enriched with campaign summary data */
-export interface EnrichedFiler extends EthicsFiler {
+/** Grouped filer result — one entry per person, with all their office filings */
+export interface GroupedFiler {
+  candidate: string
+  address: string
+  universalUserId: number
+  candidateFilerId: number
+  seiFilerId: number
+  lastSubmission: string
+  offices: {
+    officeName: string
+    officeId: number
+    lastSubmission: string
+    campaignStatus?: 'open' | 'closed'
+    balance?: number
+    campaignId?: number
+  }[]
+  primaryOfficeName?: string
   campaignStatus?: 'open' | 'closed'
   balance?: number
-  campaignOfficeName?: string
   campaignId?: number
   normalizedOffice?: NormalizedOffice
 }

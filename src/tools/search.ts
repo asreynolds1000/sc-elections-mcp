@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { searchFilers, getFilerProfile, searchFilersByOffice, cachedGetCampaignSummary, normalizeOfficeName, listOfficeNames } from '../api/ethics-client.js'
-import type { EnrichedFiler } from '../types.js'
+import { searchFilers, getFilerProfile, searchFilersByOffice, groupFilersByPerson, cachedGetCampaignSummary, normalizeOfficeName, listOfficeNames } from '../api/ethics-client.js'
+import type { GroupedFiler } from '../types.js'
 
 export function registerSearchTools(server: McpServer) {
   server.tool(
@@ -39,14 +39,15 @@ export function registerSearchTools(server: McpServer) {
 
   server.tool(
     'list_filers_by_office',
-    'Find all candidates/officials who have filed with the SC Ethics Commission for a specific office. Searches the entire filer database by sweeping all 26 letters of the alphabet and filtering by office name. This is the best tool for broad candidate discovery by office (e.g. "who has filed for Greenville County Council?"). May take 10-15 seconds due to 26 API calls. Results may be incomplete if totalFailed > 0.',
+    'Find all candidates/officials who have filed with the SC Ethics Commission for a specific office. Searches the entire filer database by sweeping all 26 letters and filtering by office name. Returns grouped results — one entry per person with an offices[] sub-array showing all their filings. May take 10-15 seconds on first call (cached 30 min after). With recent_only=true, enriches results with campaignId, balance, and status — no need to call get_campaign_summary separately.',
     {
       office: z.string().describe('Office name to search for (partial match, e.g. "Greenville County Council", "Governor", "Sheriff")'),
-      recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years. Default: false.'),
+      recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years and enrich with campaign data. Default: false.'),
+      active_since: z.number().optional().describe('Only include filers with submissions on or after this year (e.g. 2022). More precise than recent_only.'),
     },
-    async ({ office, recent_only }) => {
+    async ({ office, recent_only, active_since }) => {
       try {
-        const result = await searchFilersByOffice(office)
+        const result = await searchFilersByOffice(office, active_since)
         let { filers } = result
 
         if (recent_only) {
@@ -58,65 +59,56 @@ export function registerSearchTools(server: McpServer) {
           })
         }
 
+        // Group filers by person (dedup + merge offices)
+        const grouped = groupFilersByPerson(filers)
+
         // Enrich with campaign data when recent_only
-        let enrichedFilers: EnrichedFiler[] = filers
         let enrichmentNote = ''
-        if (recent_only && filers.length > 0) {
+        if (recent_only && grouped.length > 0) {
           const ENRICH_CAP = 50
           const BATCH_SIZE = 6
-          const toEnrich = filers.slice(0, ENRICH_CAP)
+          const toEnrich = grouped.slice(0, ENRICH_CAP)
           const needle = office.toLowerCase()
 
-          const enriched: EnrichedFiler[] = []
           for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
             const batch = toEnrich.slice(i, i + BATCH_SIZE)
-            const settled = await Promise.allSettled(
-              batch.map(async (filer) => {
-                const summary = await cachedGetCampaignSummary(filer.candidateFilerId)
+            await Promise.allSettled(
+              batch.map(async (gf) => {
+                const summary = await cachedGetCampaignSummary(gf.candidateFilerId)
                 const allOffices = [
                   ...summary.openReports.map(r => ({ ...r, status: 'open' as const })),
                   ...summary.closedReports.map(r => ({ ...r, status: 'closed' as const })),
                 ]
-                const match = allOffices.find(o => o.officeName.toLowerCase().includes(needle))
-                const enrichedFiler: EnrichedFiler = {
-                  ...filer,
-                  normalizedOffice: normalizeOfficeName(filer.officeName),
-                }
+                // Find best matching office: prefer open, then most recent
+                const matches = allOffices.filter(o => o.officeName.toLowerCase().includes(needle))
+                const match = matches.find(o => o.status === 'open') || matches[0]
+                gf.normalizedOffice = normalizeOfficeName(gf.offices[0]?.officeName || '')
                 if (match) {
-                  enrichedFiler.campaignStatus = match.status
-                  enrichedFiler.balance = match.balance
-                  enrichedFiler.campaignOfficeName = match.officeName
-                  enrichedFiler.campaignId = match.officeId
+                  gf.primaryOfficeName = match.officeName
+                  gf.campaignStatus = match.status
+                  gf.balance = match.balance
+                  gf.campaignId = match.officeId
                 }
-                return enrichedFiler
               })
             )
-            for (const r of settled) {
-              if (r.status === 'fulfilled') enriched.push(r.value)
-            }
           }
-          // Append any beyond the cap without enrichment
-          if (filers.length > ENRICH_CAP) {
-            for (const f of filers.slice(ENRICH_CAP)) {
-              enriched.push({ ...f, normalizedOffice: normalizeOfficeName(f.officeName) })
-            }
-            enrichmentNote = `\nNote: Enriched ${ENRICH_CAP} of ${filers.length} filers with campaign data. Use a more specific query for remaining.`
+          if (grouped.length > ENRICH_CAP) {
+            enrichmentNote = `\nNote: Enriched ${ENRICH_CAP} of ${grouped.length} filers with campaign data. Use a more specific query for remaining.`
           }
-          enrichedFilers = enriched
         }
 
         const parts: string[] = []
         if (result.totalFailed > 0) {
           parts.push(`Note: ${result.totalFailed} of 26 searches failed; results may be incomplete.`)
         }
-        if (enrichedFilers.length === 0) {
+        if (grouped.length === 0) {
           parts.push(`No filers found for office matching "${office}"${recent_only ? ' (with recent_only filter)' : ''}`)
         } else {
           if (recent_only) {
             parts.push('=== ENRICHED RESULTS ===\nThese results include campaignId, balance, and campaign status for each filer.\nDo NOT call get_campaign_summary for these filers — the data is already included below.\n===')
           }
-          parts.push(`${enrichedFilers.length} filer(s) found for "${office}"${recent_only ? ' (last 2 years)' : ''}:${enrichmentNote}`)
-          parts.push(JSON.stringify(enrichedFilers, null, 2))
+          parts.push(`${grouped.length} filer(s) found for "${office}"${recent_only ? ' (last 2 years)' : ''}:${enrichmentNote}`)
+          parts.push(JSON.stringify(grouped, null, 2))
         }
 
         return {

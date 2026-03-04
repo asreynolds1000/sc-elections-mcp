@@ -11,6 +11,7 @@ import type {
   ContributionSummary,
   ExpenditureSummary,
   NormalizedOffice,
+  GroupedFiler,
   CrossSearchExpenditure,
   CrossSearchContribution,
   SeiReport,
@@ -30,6 +31,17 @@ const HEADERS = {
 // Search & Lookup
 // ============================================================
 
+// Maps candidateFilerId → seiFilerId, populated by searches and sweeps
+const filerIdCache = new Map<number, number>()
+
+function populateFilerIdCache(filers: EthicsFiler[]) {
+  for (const f of filers) {
+    if (f.candidateFilerId && f.seiFilerId) {
+      filerIdCache.set(f.candidateFilerId, f.seiFilerId)
+    }
+  }
+}
+
 export async function searchFilers(name: string): Promise<EthicsFiler[]> {
   const response = await fetch(`${BASE}/Ethics/Get/Public/Search/By/Filer/Name/`, {
     method: 'POST',
@@ -38,7 +50,9 @@ export async function searchFilers(name: string): Promise<EthicsFiler[]> {
   })
   if (!response.ok) return []
   const data = await response.json()
-  return data.result || []
+  const results = data.result || []
+  populateFilerIdCache(results)
+  return results
 }
 
 export async function getFilerProfile(
@@ -60,15 +74,49 @@ function parseDate(dateStr: string): number {
   return new Date(+year, +month - 1, +day).getTime()
 }
 
+export function dedupeKey(filer: EthicsFiler): string {
+  if (filer.universalUserId > 0) return `u-${filer.universalUserId}`
+  const namePart = filer.candidate?.toLowerCase().trim() || ''
+  // Prefer seiFilerId when available (more stable than address)
+  if (filer.seiFilerId > 0) return `ns-${namePart}-${filer.seiFilerId}`
+  // Last resort: name + address prefix
+  const addrPart = filer.address?.toLowerCase().trim().slice(0, 20) || ''
+  return `na-${namePart}-${addrPart}`
+}
+
 // Office name cache — populated as side effect of sweepAllFilers()
 const officeNameCache = new Set<string>()
-let officeNameCachePopulated = false
+
+// Sweep result cache — populated by sweepAllFilers(), reused for 30 min
+interface SweepCache {
+  allResults: EthicsFiler[]
+  failed: number
+  timestamp: number
+}
+let sweepCache: SweepCache | null = null
+const SWEEP_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+
+/** @internal — exported for testing */
+export function isTestAccount(filer: EthicsFiler): boolean {
+  const name = filer.candidate?.toLowerCase() || ''
+  if (name.includes('test, test')) return true
+  if (name.includes('testing,')) return true
+  // Filer records with 50+ offices are test scaffolding
+  const officeCount = filer.officeName ? filer.officeName.split(',').length : 0
+  if (officeCount >= 50) return true
+  return false
+}
 
 async function sweepAllFilers(): Promise<{ allResults: EthicsFiler[]; failed: number }> {
+  // Return cached sweep if fresh
+  if (sweepCache && Date.now() - sweepCache.timestamp < SWEEP_CACHE_TTL_MS) {
+    return { allResults: sweepCache.allResults, failed: sweepCache.failed }
+  }
+
   const letters = 'abcdefghijklmnopqrstuvwxyz'.split('')
   const BATCH_SIZE = 6
   const TIMEOUT_MS = 10_000
-  const allResults: EthicsFiler[] = []
+  const rawResults: EthicsFiler[] = []
   let failed = 0
 
   for (let i = 0; i < letters.length; i += BATCH_SIZE) {
@@ -94,14 +142,18 @@ async function sweepAllFilers(): Promise<{ allResults: EthicsFiler[]; failed: nu
     )
     for (const result of settled) {
       if (result.status === 'fulfilled') {
-        allResults.push(...result.value)
+        rawResults.push(...result.value)
       } else {
         failed++
       }
     }
   }
 
-  // Populate office name cache from all filer results
+  // Filter test/junk accounts
+  const allResults = rawResults.filter(filer => !isTestAccount(filer))
+
+  // Re-populate office name cache from filtered results
+  officeNameCache.clear()
   for (const filer of allResults) {
     if (filer.officeName) {
       for (const part of filer.officeName.split(',')) {
@@ -110,12 +162,20 @@ async function sweepAllFilers(): Promise<{ allResults: EthicsFiler[]; failed: nu
       }
     }
   }
-  officeNameCachePopulated = true
+
+  // Populate filerIdCache from sweep results
+  populateFilerIdCache(allResults)
+
+  // Store in cache
+  sweepCache = { allResults, failed, timestamp: Date.now() }
 
   return { allResults, failed }
 }
 
-export async function searchFilersByOffice(officeName: string): Promise<OfficeFilerResult> {
+export async function searchFilersByOffice(
+  officeName: string,
+  activeSince?: number,
+): Promise<OfficeFilerResult> {
   const { allResults, failed } = await sweepAllFilers()
 
   // Filter by office name (case-insensitive partial match)
@@ -124,12 +184,19 @@ export async function searchFilersByOffice(officeName: string): Promise<OfficeFi
     f.officeName?.toLowerCase().includes(needle)
   )
 
+  // Filter by active_since year
+  const activeSinceFiltered = activeSince
+    ? matching.filter(f => {
+        if (!f.lastSubmission) return false
+        const [, , year] = f.lastSubmission.split('/')
+        return parseInt(year, 10) >= activeSince
+      })
+    : matching
+
   // Deduplicate: prefer record with most recent submission per person
   const seen = new Map<string, EthicsFiler>()
-  for (const filer of matching) {
-    const key = filer.universalUserId > 0
-      ? `u-${filer.universalUserId}`
-      : `c-${filer.candidateFilerId}-s-${filer.seiFilerId}`
+  for (const filer of activeSinceFiltered) {
+    const key = dedupeKey(filer)
     const existing = seen.get(key)
     if (!existing || parseDate(filer.lastSubmission) > parseDate(existing.lastSubmission)) {
       seen.set(key, filer)
@@ -144,10 +211,42 @@ export async function searchFilersByOffice(officeName: string): Promise<OfficeFi
   return { filers, totalSearched: 26, totalFailed: failed }
 }
 
-export async function listOfficeNames(keyword?: string): Promise<string[]> {
-  if (!officeNameCachePopulated) {
-    await sweepAllFilers()
+export function groupFilersByPerson(filers: EthicsFiler[]): GroupedFiler[] {
+  const grouped = new Map<string, GroupedFiler>()
+  for (const filer of filers) {
+    const key = dedupeKey(filer)
+    const existing = grouped.get(key)
+    const officeEntry = {
+      officeName: filer.officeName || '',
+      officeId: filer.officeId,
+      lastSubmission: filer.lastSubmission,
+    }
+    if (existing) {
+      const alreadyHas = existing.offices.some(o => o.officeId === filer.officeId)
+      if (!alreadyHas) existing.offices.push(officeEntry)
+      if (parseDate(filer.lastSubmission) > parseDate(existing.lastSubmission)) {
+        existing.lastSubmission = filer.lastSubmission
+        existing.candidateFilerId = filer.candidateFilerId
+        existing.seiFilerId = filer.seiFilerId
+      }
+    } else {
+      grouped.set(key, {
+        candidate: filer.candidate,
+        address: filer.address,
+        universalUserId: filer.universalUserId,
+        candidateFilerId: filer.candidateFilerId,
+        seiFilerId: filer.seiFilerId,
+        lastSubmission: filer.lastSubmission,
+        offices: [officeEntry],
+      })
+    }
   }
+  return [...grouped.values()].sort((a, b) => parseDate(b.lastSubmission) - parseDate(a.lastSubmission))
+}
+
+export async function listOfficeNames(keyword?: string): Promise<string[]> {
+  // sweepAllFilers() handles caching internally (30 min TTL)
+  await sweepAllFilers()
   let names = [...officeNameCache].sort()
   if (keyword) {
     const needle = keyword.toLowerCase()
@@ -159,6 +258,18 @@ export async function listOfficeNames(keyword?: string): Promise<string[]> {
 // ============================================================
 // Campaign Finance — Per-Candidate
 // ============================================================
+
+/** Try to resolve a candidate's display name when summary.name is null */
+export async function resolveCandidateName(candidateFilerId: number): Promise<string | undefined> {
+  const seiFilerId = filerIdCache.get(candidateFilerId)
+  if (!seiFilerId) return undefined
+  try {
+    const profile = await getFilerProfile(candidateFilerId, seiFilerId)
+    return profile.name || undefined
+  } catch {
+    return undefined
+  }
+}
 
 export async function getCampaignSummary(candidateFilerId: number): Promise<CampaignSummary> {
   const response = await fetch(
@@ -320,13 +431,14 @@ export function resolveCampaignContext(
   candidateFilerId: number,
   campaignId?: number,
   officeHint?: string,
+  candidateNameOverride?: string,
 ): { context: CampaignContext; resolvedCampaignId: number } | { error: string } {
   const allOffices: (CampaignOfficeReport & { status: 'open' | 'closed' })[] = [
     ...summary.openReports.map(r => ({ ...r, status: 'open' as const })),
     ...summary.closedReports.map(r => ({ ...r, status: 'closed' as const })),
   ]
 
-  const candidateName = summary.name || 'Unknown'
+  const candidateName = candidateNameOverride || summary.name || 'Unknown'
 
   function makeContext(office: CampaignOfficeReport & { status: 'open' | 'closed' }): {
     context: CampaignContext

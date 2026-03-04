@@ -34,6 +34,7 @@ sc-elections-mcp/
 │       ├── search.ts         # search_filers, get_filer_profile
 │       ├── campaign.ts       # campaign summary/reports/details/contributions/expenditures
 │       ├── cross-search.ts   # search_expenditures, search_contributions
+│       ├── overlap.ts        # find_donor_overlap (cross-candidate donor analysis)
 │       ├── sei.ts            # get_sei_details (aggregates 17 sub-endpoints)
 │       └── vrems.ts          # list_elections, search_candidates, get_candidate_details
 ├── package.json
@@ -42,32 +43,35 @@ sc-elections-mcp/
 └── API-REFERENCE.md
 ```
 
-## MCP Tools (15 tools — at recommended ceiling, split before adding more)
+## MCP Tools (16 tools)
 
 ### Search & Lookup (Ethics)
 1. **search_filers** — Search for candidates/officials by name. Default limit 50 (0 for all). Use last name only for best results.
-2. **list_filers_by_office** — Find all filers for a specific office (sweeps entire database, ~10-15 sec). With `recent_only: true`, enriches results with campaign balance, status, and campaignId — skip get_campaign_summary for enriched results.
+2. **list_filers_by_office** — Find all filers for a specific office (sweeps entire database, cached 30 min). Returns grouped results — one entry per person with offices[] sub-array. With `recent_only: true`, enriches with campaign balance, status, campaignId. `active_since` filters by year.
 3. **get_filer_profile** — Full profile (address, positions, offices)
-4. **list_office_names** — Discover exact office name strings from the filer database. Use these with list_filers_by_office for precise matching. Optional keyword filter. First call triggers sweep (~10-15 sec), subsequent calls instant from cache.
+4. **list_office_names** — Discover exact office name strings from the filer database. Use these with list_filers_by_office for precise matching. Optional keyword filter. First call triggers sweep (~10-15 sec), cached 30 min after.
 
 ### Campaign Finance (Ethics)
 5. **get_campaign_summary** — Report summary with balances, open/closed offices
 6. **get_campaign_reports** — List filed reports. campaign_id optional (auto-resolved), office hint to disambiguate
 7. **get_campaign_report_details** — Detailed breakdown of a single report
-8. **get_contributions** — Contributions with metadata header for verification. campaign_id optional (auto-resolved), office hint, summary mode (top 20 donors), year/min_amount/limit filters
-9. **get_expenditures** — Expenditures with metadata header. campaign_id optional, office hint, summary mode (top 20 vendors), year/min_amount/limit filters
+8. **get_contributions** — Contributions with metadata header for verification. campaign_id optional (auto-resolved), office hint, summary mode (top 20 donors), year/min_amount/limit filters. Auto-resolves candidate name from profile when summary.name is null.
+9. **get_expenditures** — Expenditures with metadata header. Same features as get_contributions. Auto-resolves candidate name.
 
 ### Cross-Candidate Search (Ethics)
-10. **search_expenditures** — Search expenditures across ALL candidates by vendor, candidate, office, year, amount. Default limit 200 (0 for all).
-11. **search_contributions** — Search contributions across ALL candidates. Default limit 200. Office filter is broken server-side; combine with another filter.
+10. **search_expenditures** — Search expenditures across ALL candidates. At least one filter required. `slim` strips address fields, `summary` groups by vendor. Auto-truncates at 60K chars. Default limit 200.
+11. **search_contributions** — Search contributions across ALL candidates. `slim` strips address/occupation, `summary` groups by candidate. Auto-truncates at 60K chars. Office filter broken server-side.
+
+### Donor Analysis (Ethics)
+12. **find_donor_overlap** — Find shared donors between candidates. Two modes: explicit (up to 20 comparison IDs) or office-based (auto-discovers candidates, max 25). Normalizes donor names (Last,First ↔ First Last, strips suffixes). Returns ranked by total given.
 
 ### Statement of Economic Interest (Ethics)
-12. **get_sei_details** — Full SEI report: positions, business interests, income, gifts, travel, creditors, lobbyist contacts
+13. **get_sei_details** — Full SEI report: positions, business interests, income, gifts, travel, creditors, lobbyist contacts
 
 ### Candidate Filings (VREMS)
-13. **list_elections** — Browse SC elections by type (General/Special/Local) and year. Keyword filter + default limit 50. Use keyword to filter by location (e.g. "Sumter").
-14. **search_candidates** — Search candidates in an election. Default limit 50 (0 for all). Rich data via CSV export.
-15. **get_candidate_details** — Candidate filing details with document download links (filing form PDF, fee receipt)
+14. **list_elections** — Browse SC elections by type (General/Special/Local) and year. Keyword filter + default limit 50. Use keyword to filter by location (e.g. "Sumter").
+15. **search_candidates** — Search candidates in an election. Default limit 50 (0 for all). Rich data via CSV export.
+16. **get_candidate_details** — Candidate filing details with document download links (filing form PDF, fee receipt)
 
 ## Recommended Workflow for Broad Candidate Discovery
 
@@ -79,7 +83,11 @@ For questions like "who is running for [office]":
 4. **Cross-reference with VREMS** — once the filing period opens, `search_candidates` (with keyword filter on `list_elections` to find the right election) provides the authoritative candidate list with contact info.
 5. **Web search for unfiled candidates** — catches candidates who announced but haven't filed yet.
 
-The Ethics cross-search tools (search_expenditures/search_contributions) are useful for financial sweeps but have office name inconsistencies. The contribution office filter is broken server-side — use `list_filers_by_office` + per-candidate `get_contributions` instead.
+For donor overlap analysis (e.g. "who shares funders with Candidate X?"):
+- **find_donor_overlap** with `office` param auto-discovers comparison candidates and computes overlap in one call
+- Or pass explicit `comparison_candidate_filer_ids` for targeted comparisons
+
+The Ethics cross-search tools (search_expenditures/search_contributions) are useful for financial sweeps but have office name inconsistencies. The contribution office filter is broken server-side — use `list_filers_by_office` + per-candidate `get_contributions` instead. Use `slim=true` or `summary=true` for broad searches to avoid overflow.
 
 ## Key API Quirks
 
