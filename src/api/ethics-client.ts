@@ -576,7 +576,7 @@ export function buildContributionSummary(
   // Date range
   let dateRange: ContributionSummary['dateRange'] = null
   if (dates.length > 0) {
-    const sorted = dates.sort()
+    const sorted = [...dates].sort((a, b) => parseDate(a) - parseDate(b))
     dateRange = { earliest: sorted[0], latest: sorted[sorted.length - 1] }
   }
 
@@ -634,7 +634,7 @@ export function buildExpenditureSummary(
   // Date range
   let dateRange: ExpenditureSummary['dateRange'] = null
   if (dates.length > 0) {
-    const sorted = dates.sort()
+    const sorted = [...dates].sort((a, b) => parseDate(a) - parseDate(b))
     dateRange = { earliest: sorted[0], latest: sorted[sorted.length - 1] }
   }
 

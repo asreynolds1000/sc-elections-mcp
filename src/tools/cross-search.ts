@@ -180,13 +180,15 @@ export function registerCrossSearchTools(server: McpServer) {
     },
     async ({ candidate, office, contributor_name, year, amount, limit, slim, summary }) => {
       try {
-        // Guard: office-only queries return ~79K unfiltered results (server ignores the filter)
+        // Guard: all-empty or office-only queries return ~79K unfiltered results (server ignores office filter)
         const hasOtherFilter = candidate || contributor_name || year || amount
-        if (office && !hasOtherFilter) {
+        if (!hasOtherFilter) {
           return {
             content: [{
               type: 'text' as const,
-              text: 'The office filter on search_contributions is broken server-side — the API ignores it and returns ~79K unfiltered results. Use list_filers_by_office to find candidates for that office, then get_contributions for each candidate individually.',
+              text: office
+                ? 'The office filter on search_contributions is broken server-side — the API ignores it and returns ~79K unfiltered results. Use list_filers_by_office to find candidates for that office, then get_contributions for each candidate individually.'
+                : 'At least one filter is required for search_contributions. Provide candidate, contributor_name, year, or amount.',
             }],
             isError: true,
           }
