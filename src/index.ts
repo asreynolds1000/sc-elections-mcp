@@ -10,7 +10,7 @@ import { registerOverlapTools } from './tools/overlap.js'
 
 const server = new McpServer({
   name: 'sc-elections-mcp',
-  version: '0.5.0',
+  version: '0.5.1',
 })
 
 // Ethics Commission tools (ethicsfiling.sc.gov)
