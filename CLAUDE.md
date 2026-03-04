@@ -37,6 +37,7 @@ sc-elections-mcp/
 │       ├── overlap.ts        # find_donor_overlap (cross-candidate donor analysis)
 │       ├── sei.ts            # get_sei_details (aggregates 17 sub-endpoints)
 │       └── vrems.ts          # list_elections, search_candidates, get_candidate_details
+├── tests/                   # vitest unit + smoke tests (33 tests)
 ├── package.json
 ├── tsconfig.json
 ├── CLAUDE.md
@@ -113,6 +114,7 @@ Test against real APIs — no mocks needed. Good test candidates:
 ```bash
 npm run dev      # Run with tsx (development)
 npm run build    # Compile to dist/
+npm test         # Run vitest (33 tests: 32 unit + 1 smoke)
 npm start        # Run compiled version
 ```
 
