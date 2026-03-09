@@ -6,3 +6,4 @@ hars/
 .env.*
 .DS_Store
 task_plan.md
+*.mcpb

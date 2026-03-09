@@ -1,0 +1,11 @@
+hars/
+tests/
+src/
+*.har
+*.ts
+!*.d.ts
+tsconfig.json
+vitest.config.ts
+API-REFERENCE.md
+CLAUDE.md
+.claude/

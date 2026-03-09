@@ -15,7 +15,8 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "pack:mcpb": "npm run build && bash scripts/pack-mcpb.sh"
   },
   "keywords": [
     "mcp",
