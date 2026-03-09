@@ -116,10 +116,16 @@ npm run dev      # Run with tsx (development)
 npm run build    # Compile to dist/
 npm test         # Run vitest (33 tests: 32 unit + 1 smoke)
 npm start        # Run compiled version
+npm run pack:mcpb  # Build Desktop Extension (.mcpb) for Claude Desktop
 ```
 
 ## Publishing
 
 ```bash
+# npm (for Claude Code / manual config users)
 claude mcp add sc-elections -- npx -y sc-elections-mcp
+
+# Desktop Extension (for Claude Desktop one-click install)
+npm run pack:mcpb  # produces sc-elections-mcp.mcpb (3.5MB)
+# Attach to GitHub release — README links to releases/latest/download/sc-elections-mcp.mcpb
 ```
