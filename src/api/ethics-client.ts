@@ -432,7 +432,7 @@ export function resolveCampaignContext(
   campaignId?: number,
   officeHint?: string,
   candidateNameOverride?: string,
-): { context: CampaignContext; resolvedCampaignId: number } | { error: string } {
+): { context: CampaignContext; resolvedCampaignId: number; resolvedFilerId: number } | { error: string } {
   const allOffices: (CampaignOfficeReport & { status: 'open' | 'closed' })[] = [
     ...summary.openReports.map(r => ({ ...r, status: 'open' as const })),
     ...summary.closedReports.map(r => ({ ...r, status: 'closed' as const })),
@@ -443,16 +443,18 @@ export function resolveCampaignContext(
   function makeContext(office: CampaignOfficeReport & { status: 'open' | 'closed' }): {
     context: CampaignContext
     resolvedCampaignId: number
+    resolvedFilerId: number
   } {
     return {
       context: {
         candidateName,
         officeName: office.officeName,
         campaignId: office.officeId,
-        candidateFilerId,
+        candidateFilerId: office.filerId,
         campaignStatus: office.status,
       },
       resolvedCampaignId: office.officeId,
+      resolvedFilerId: office.filerId,
     }
   }
 

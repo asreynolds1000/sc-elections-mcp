@@ -39,7 +39,7 @@ export function registerSearchTools(server: McpServer) {
 
   server.tool(
     'list_filers_by_office',
-    'Find all candidates/officials who have filed with the SC Ethics Commission for a specific office. Searches the entire filer database by sweeping all 26 letters and filtering by office name. Returns grouped results — one entry per person with an offices[] sub-array showing all their filings. May take 10-15 seconds on first call (cached 30 min after). With recent_only=true, enriches results with campaignId, balance, and status — no need to call get_campaign_summary separately.',
+    'Find all candidates/officials who have filed with the SC Ethics Commission for a specific office. Searches the entire filer database by sweeping all 26 letters and filtering by office name. Returns grouped results — one entry per person with an offices[] sub-array showing all their filings. May take 10-15 seconds on first call (cached 30 min after). With recent_only=true, enriches results with campaignId, balance, status, and initialReportFiledDate — no need to call get_campaign_summary separately. To find NEW candidates entering a race, use recent_only=true and look at initialReportFiledDate to see when they first filed their campaign.',
     {
       office: z.string().describe('Office name to search for (partial match, e.g. "Greenville County Council", "Governor", "Sheriff")'),
       recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years and enrich with campaign data. Default: false.'),

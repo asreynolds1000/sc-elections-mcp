@@ -39,7 +39,7 @@ async function fetchCandidateContributions(
     if ('error' in resolved) {
       return { candidateFilerId, candidateName: 'Unknown', officeName: 'Unknown', contributions: [], error: resolved.error }
     }
-    const contributions = await getContributions(resolved.resolvedCampaignId, candidateFilerId)
+    const contributions = await getContributions(resolved.resolvedCampaignId, resolved.resolvedFilerId)
     return {
       candidateFilerId,
       candidateName: resolved.context.candidateName,

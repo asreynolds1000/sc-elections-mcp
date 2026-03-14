@@ -21,7 +21,7 @@ function formatHeader(context: CampaignContext, count: number, totalLabel: strin
 export function registerCampaignTools(server: McpServer) {
   server.tool(
     'get_campaign_summary',
-    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers. Note: an open campaign does not necessarily mean the person currently holds that office.',
+    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers. Each office entry includes initialReportFiledDate (when the candidate first filed — use this to find new candidates entering races), balance, and total contributions. Note: an open campaign does not necessarily mean the person currently holds that office. A candidate may have different filerIds for different offices — the contribution/expenditure tools handle this automatically.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
     },
@@ -124,7 +124,7 @@ export function registerCampaignTools(server: McpServer) {
           return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
         }
 
-        let contributions = await getContributions(resolved.resolvedCampaignId, candidate_filer_id)
+        let contributions = await getContributions(resolved.resolvedCampaignId, resolved.resolvedFilerId)
 
         // Client-side filters
         if (year) {
@@ -197,7 +197,7 @@ export function registerCampaignTools(server: McpServer) {
           return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
         }
 
-        let expenditures = await getExpenditures(resolved.resolvedCampaignId, candidate_filer_id)
+        let expenditures = await getExpenditures(resolved.resolvedCampaignId, resolved.resolvedFilerId)
 
         // Client-side filters
         if (year) {
