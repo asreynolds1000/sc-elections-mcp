@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { cachedGetCampaignSummary, resolveCampaignContext, resolveCandidateName, getContributions, searchFilersByOffice, groupFilersByPerson } from '../api/ethics-client.js'
+import { cachedGetCampaignSummary, resolveCampaignContext, resolveCandidateName, resolveByName, getContributions, searchFilersByOffice, groupFilersByPerson } from '../api/ethics-client.js'
 import type { CampaignContribution } from '../types.js'
 
 /** @internal — exported for testing */
@@ -148,12 +148,15 @@ export function computeOverlap(
 export function registerOverlapTools(server: McpServer) {
   server.tool(
     'find_donor_overlap',
-    'Find donors who contributed to multiple candidates. Two modes:\n1. Explicit: pass primary + comparison candidate IDs (up to 20)\n2. Office-based: pass primary + office name to auto-discover comparison candidates (max 25)\nFetches contributions in parallel and computes intersection. Name matching normalizes "Last, First" vs "First Last", strips suffixes (Jr, Sr, etc), and is case-insensitive.',
+    'Find donors who contributed to multiple candidates. Three modes:\n1. By name: pass primary_name + comparison_names (resolves candidates automatically)\n2. By ID: pass primary_candidate_filer_id + comparison_candidate_filer_ids\n3. Office-based: pass primary ID/name + office to auto-discover comparison candidates (max 25)\nUse county param to disambiguate common names (e.g. county="Greenville"). Fetches contributions in parallel and computes intersection. Name matching normalizes "Last, First" vs "First Last", strips suffixes (Jr, Sr, etc), and is case-insensitive.',
     {
-      primary_candidate_filer_id: z.number().describe('candidateFilerId of the primary candidate'),
+      primary_candidate_filer_id: z.number().optional().describe('candidateFilerId of the primary candidate. Optional if primary_name is provided.'),
+      primary_name: z.string().optional().describe('Full name of primary candidate (e.g. "Steve Shaw"). Alternative to primary_candidate_filer_id — resolves the ID automatically.'),
       primary_campaign_id: z.number().optional().describe('campaignId for primary — optional, auto-resolved'),
       primary_office: z.string().optional().describe('Office hint for primary candidate'),
-      comparison_candidate_filer_ids: z.array(z.number()).max(20).optional().describe('Array of up to 20 candidateFilerId values to compare against. Omit if using office param.'),
+      comparison_candidate_filer_ids: z.array(z.number()).max(20).optional().describe('Array of up to 20 candidateFilerId values to compare against. Omit if using office param or comparison_names.'),
+      comparison_names: z.array(z.string()).max(20).optional().describe('Names of candidates to compare (e.g. ["Jason Elliott", "Joe Smith"]). Alternative to comparison_candidate_filer_ids.'),
+      county: z.string().optional().describe('County or city to disambiguate candidates with common names (e.g. "Greenville"). Applies to both primary and comparison name resolution.'),
       office: z.string().optional().describe('Office name to auto-discover comparison candidates (e.g. "Kershaw County Council"). Uses list_filers_by_office internally.'),
       active_since: z.number().optional().describe('When using office mode, only include candidates with filings since this year'),
       min_total: z.number().optional().describe('Minimum total given across all candidates to include'),
@@ -162,9 +165,12 @@ export function registerOverlapTools(server: McpServer) {
     },
     async ({
       primary_candidate_filer_id,
+      primary_name,
       primary_campaign_id,
       primary_office,
       comparison_candidate_filer_ids,
+      comparison_names,
+      county,
       office,
       active_since,
       min_total,
@@ -172,14 +178,61 @@ export function registerOverlapTools(server: McpServer) {
       exact_match,
     }) => {
       try {
+        // Resolve primary candidate by name if needed
+        let primaryId = primary_candidate_filer_id
+        if (!primaryId && primary_name) {
+          const parts = primary_name.trim().split(/\s+/)
+          const firstName = parts[0]
+          const lastName = parts.slice(1).join(' ')
+          if (!lastName) {
+            return {
+              content: [{ type: 'text' as const, text: `primary_name must include first and last name (e.g. "Steve Shaw"), got "${primary_name}".` }],
+              isError: true,
+            }
+          }
+          const resolved = await resolveByName(firstName, lastName, county)
+          if ('error' in resolved) {
+            return { content: [{ type: 'text' as const, text: `Could not resolve primary candidate "${primary_name}": ${resolved.error}` }], isError: true }
+          }
+          primaryId = resolved.candidateFilerId
+        }
+
+        if (!primaryId) {
+          return {
+            content: [{ type: 'text' as const, text: 'Provide primary_candidate_filer_id or primary_name.' }],
+            isError: true,
+          }
+        }
+
         let comparisonIds = comparison_candidate_filer_ids || []
+
+        // Resolve comparison candidates by name if needed
+        if (comparison_names && comparison_names.length > 0 && comparisonIds.length === 0) {
+          const resolved = await Promise.all(
+            comparison_names.map(async name => {
+              const parts = name.trim().split(/\s+/)
+              const firstName = parts[0]
+              const lastName = parts.slice(1).join(' ')
+              if (!lastName) return { name, result: { error: `Name must include first and last name, got "${name}".` } as const }
+              return { name, result: await resolveByName(firstName, lastName, county) }
+            })
+          )
+          const failures = resolved.filter(r => 'error' in r.result)
+          if (failures.length > 0) {
+            const msgs = failures.map(f => `"${f.name}": ${'error' in f.result ? f.result.error : ''}`)
+            return { content: [{ type: 'text' as const, text: `Could not resolve comparison candidate(s):\n${msgs.join('\n')}` }], isError: true }
+          }
+          comparisonIds = resolved
+            .map(r => 'candidateFilerId' in r.result ? r.result.candidateFilerId : 0)
+            .filter(id => id > 0)
+        }
 
         // Office-based mode: auto-discover comparison candidates
         if (office && comparisonIds.length === 0) {
           const result = await searchFilersByOffice(office, active_since)
           const grouped = groupFilersByPerson(result.filers)
           // Exclude the primary candidate
-          const others = grouped.filter(g => g.candidateFilerId !== primary_candidate_filer_id)
+          const others = grouped.filter(g => g.candidateFilerId !== primaryId)
           if (others.length > 25) {
             return {
               content: [{
@@ -196,7 +249,7 @@ export function registerOverlapTools(server: McpServer) {
           return {
             content: [{
               type: 'text' as const,
-              text: 'Provide either comparison_candidate_filer_ids or an office name to discover comparison candidates.',
+              text: 'Provide comparison_candidate_filer_ids, comparison_names, or an office name to discover comparison candidates.',
             }],
             isError: true,
           }
@@ -204,12 +257,12 @@ export function registerOverlapTools(server: McpServer) {
 
         // Fetch primary and all comparisons in parallel
         const [primaryResult, ...comparisonResults] = await Promise.all([
-          fetchCandidateContributions(primary_candidate_filer_id, primary_campaign_id, primary_office),
+          fetchCandidateContributions(primaryId, primary_campaign_id, primary_office),
           ...comparisonIds.map(id => fetchCandidateContributions(id)),
         ])
 
         const errors: string[] = []
-        if (primaryResult.error) errors.push(`Primary (${primary_candidate_filer_id}): ${primaryResult.error}`)
+        if (primaryResult.error) errors.push(`Primary (${primaryId}): ${primaryResult.error}`)
         for (const comp of comparisonResults) {
           if (comp.error) errors.push(`Comparison (${comp.candidateFilerId}): ${comp.error}`)
         }

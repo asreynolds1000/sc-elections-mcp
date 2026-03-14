@@ -55,6 +55,72 @@ export async function searchFilers(name: string): Promise<EthicsFiler[]> {
   return results
 }
 
+/**
+ * Resolve a candidate by first + last name, with optional county/city hint for disambiguation.
+ * Returns the candidateFilerId for the best match, or an error message.
+ */
+export async function resolveByName(
+  firstName: string,
+  lastName: string,
+  county?: string,
+): Promise<{ candidateFilerId: number; candidateName: string } | { error: string }> {
+  const results = await searchFilers(lastName)
+
+  // Only exact last-name matches with a valid candidateFilerId
+  const candidates = results.filter(r =>
+    r.percentageAccuracy === 1 && r.candidateFilerId > 0
+  )
+
+  // Match first name against "Last, First ..." format
+  const firstLower = firstName.toLowerCase()
+  const nameMatches = candidates.filter(r => {
+    const parts = r.candidate.split(',')
+    if (parts.length < 2) return false
+    const first = parts[1].trim().split(/\s+/)[0].toLowerCase()
+    return first === firstLower || first.startsWith(firstLower) || firstLower.startsWith(first)
+  })
+
+  if (nameMatches.length === 0) {
+    return { error: `No filer found matching "${firstName} ${lastName}". Try searching by last name only with search_filers.` }
+  }
+
+  // Deduplicate by universalUserId (consolidated accounts)
+  const seen = new Set<number>()
+  const unique = nameMatches.filter(r => {
+    const key = r.universalUserId > 0 ? r.universalUserId : r.candidateFilerId
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  if (unique.length === 1) {
+    return { candidateFilerId: unique[0].candidateFilerId, candidateName: unique[0].candidate }
+  }
+
+  // Multiple matches — try county/city disambiguation
+  if (county) {
+    const countyLower = county.toLowerCase()
+    const countyMatches = unique.filter(r =>
+      r.address.toLowerCase().includes(countyLower) ||
+      r.officeName.toLowerCase().includes(countyLower)
+    )
+    if (countyMatches.length === 1) {
+      return { candidateFilerId: countyMatches[0].candidateFilerId, candidateName: countyMatches[0].candidate }
+    }
+    if (countyMatches.length > 1) {
+      return pickMostRecent(countyMatches)
+    }
+  }
+
+  // No county or county didn't help — pick most recently active
+  return pickMostRecent(unique)
+}
+
+function pickMostRecent(filers: EthicsFiler[]): { candidateFilerId: number; candidateName: string } {
+  const sorted = [...filers].sort((a, b) => parseDate(b.lastSubmission) - parseDate(a.lastSubmission))
+  return { candidateFilerId: sorted[0].candidateFilerId, candidateName: sorted[0].candidate }
+}
+
 export async function getFilerProfile(
   candidateFilerId: number,
   seiFilerId: number
