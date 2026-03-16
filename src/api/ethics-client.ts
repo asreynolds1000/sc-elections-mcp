@@ -19,6 +19,7 @@ import type {
   SeiDetails,
   OfficeFilerResult,
 } from '../types.js'
+import { extractCountyFromAddress, extractCountyFromOfficeName } from '../data/sc-counties.js'
 
 const BASE = 'https://ethicsfiling.sc.gov/api'
 
@@ -238,18 +239,35 @@ async function sweepAllFilers(): Promise<{ allResults: EthicsFiler[]; failed: nu
   return { allResults, failed }
 }
 
-export async function searchFilersByOffice(
-  officeName: string,
-  activeSince?: number,
-): Promise<OfficeFilerResult> {
-  const { allResults, failed } = await sweepAllFilers()
+/**
+ * Token-based office name matching. All query tokens must appear as exact words
+ * in at least one comma-separated segment of the text. "Other Office" segments
+ * are ignored. Order-independent: "House District 13" matches "District 13 House".
+ */
+export function tokenMatch(query: string, text: string): boolean {
+  if (!query || !text) return false
 
-  // Filter by office name (case-insensitive partial match)
-  const needle = officeName.toLowerCase()
-  const matching = allResults.filter(f =>
-    f.officeName?.toLowerCase().includes(needle)
-  )
+  const queryTokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (queryTokens.length === 0) return false
 
+  // Split on commas into segments, filter out standalone "Other Office"
+  const segments = text.split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(s => s && s !== 'other office')
+
+  for (const segment of segments) {
+    const segmentWords = segment.split(/\s+/).filter(Boolean)
+    if (queryTokens.every(token => segmentWords.includes(token))) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Shared helper: filter by activeSince year, deduplicate, and sort by most recent.
+ */
+function filterAndDedupFilers(matching: EthicsFiler[], activeSince?: number): EthicsFiler[] {
   // Filter by active_since year
   const activeSinceFiltered = activeSince
     ? matching.filter(f => {
@@ -270,10 +288,45 @@ export async function searchFilersByOffice(
   }
 
   // Sort by most recent submission descending
-  const filers = [...seen.values()].sort((a, b) =>
+  return [...seen.values()].sort((a, b) =>
     parseDate(b.lastSubmission) - parseDate(a.lastSubmission)
   )
+}
 
+export async function searchFilersByOffice(
+  officeName: string,
+  activeSince?: number,
+): Promise<OfficeFilerResult> {
+  const { allResults, failed } = await sweepAllFilers()
+
+  const matching = allResults.filter(f =>
+    tokenMatch(officeName, f.officeName || '')
+  )
+
+  const filers = filterAndDedupFilers(matching, activeSince)
+  return { filers, totalSearched: 26, totalFailed: failed }
+}
+
+export async function searchFilersByCounty(
+  countyName: string,
+  activeSince?: number,
+): Promise<OfficeFilerResult> {
+  const { allResults, failed } = await sweepAllFilers()
+
+  const countyLower = countyName.toLowerCase()
+  const matching = allResults.filter(f => {
+    // Match 1: county name in office name (word-boundary)
+    const officeCounty = extractCountyFromOfficeName(f.officeName || '')
+    if (officeCounty?.toLowerCase() === countyLower) return true
+
+    // Match 2: city in address maps to this county
+    const addressCounty = extractCountyFromAddress(f.address || '')
+    if (addressCounty?.toLowerCase() === countyLower) return true
+
+    return false
+  })
+
+  const filers = filterAndDedupFilers(matching, activeSince)
   return { filers, totalSearched: 26, totalFailed: failed }
 }
 

@@ -13,6 +13,7 @@ const EXPECTED_TOOLS = [
   // Search & Lookup (Ethics)
   'search_filers',
   'list_filers_by_office',
+  'list_filers_by_county',
   'get_filer_profile',
   'list_office_names',
   // Campaign Finance (Ethics)
@@ -55,7 +56,7 @@ describe('MCP server smoke test', () => {
     await server.close()
   })
 
-  it('registers exactly 16 tools', async () => {
+  it('registers exactly 17 tools', async () => {
     await Promise.all([
       server.connect(serverTransport),
       client.connect(clientTransport),
@@ -64,7 +65,7 @@ describe('MCP server smoke test', () => {
     const { tools } = await client.listTools()
     const toolNames = tools.map((t) => t.name).sort()
 
-    expect(tools).toHaveLength(16)
+    expect(tools).toHaveLength(17)
     expect(toolNames).toEqual([...EXPECTED_TOOLS].sort())
   })
 })

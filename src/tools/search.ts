@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { searchFilers, getFilerProfile, searchFilersByOffice, groupFilersByPerson, cachedGetCampaignSummary, normalizeOfficeName, listOfficeNames } from '../api/ethics-client.js'
+import { searchFilers, getFilerProfile, searchFilersByOffice, searchFilersByCounty, groupFilersByPerson, cachedGetCampaignSummary, normalizeOfficeName, listOfficeNames, tokenMatch } from '../api/ethics-client.js'
+import { resolveCountyName } from '../data/sc-counties.js'
 import type { GroupedFiler } from '../types.js'
 
 export function registerSearchTools(server: McpServer) {
@@ -68,7 +69,6 @@ export function registerSearchTools(server: McpServer) {
           const ENRICH_CAP = 50
           const BATCH_SIZE = 6
           const toEnrich = grouped.slice(0, ENRICH_CAP)
-          const needle = office.toLowerCase()
 
           for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
             const batch = toEnrich.slice(i, i + BATCH_SIZE)
@@ -80,7 +80,7 @@ export function registerSearchTools(server: McpServer) {
                   ...summary.closedReports.map(r => ({ ...r, status: 'closed' as const })),
                 ]
                 // Find best matching office: prefer open, then most recent
-                const matches = allOffices.filter(o => o.officeName.toLowerCase().includes(needle))
+                const matches = allOffices.filter(o => tokenMatch(office, o.officeName))
                 const match = matches.find(o => o.status === 'open') || matches[0]
                 gf.normalizedOffice = normalizeOfficeName(gf.offices[0]?.officeName || '')
                 if (match) {
@@ -135,6 +135,103 @@ export function registerSearchTools(server: McpServer) {
         const profile = await getFilerProfile(candidate_filer_id, sei_filer_id)
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(profile, null, 2) }],
+        }
+      } catch (error) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+          isError: true,
+        }
+      }
+    }
+  )
+
+  server.tool(
+    'list_filers_by_county',
+    'Find all candidates/officials who have filed with the SC Ethics Commission in a specific county. Matches by county name in office name (e.g. "Greenville County Council", "Greenville Sheriff") OR by city-to-county mapping from filer address. Returns grouped results like list_filers_by_office. First call may take 10-15 seconds (alphabet sweep). Results cached 30 minutes. City-to-county mapping covers incorporated municipalities; some rural addresses may not match.',
+    {
+      county: z.string().describe('County name (e.g. "Greenville", "Richland", "Charleston")'),
+      recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years and enrich with campaign data. Default: false.'),
+      active_since: z.number().optional().describe('Only include filers with submissions on or after this year (e.g. 2022).'),
+      office_type: z.string().optional().describe('Filter by office type using token matching (e.g. "County Council", "Sheriff", "House"). Order-independent.'),
+    },
+    async ({ county, recent_only, active_since, office_type }) => {
+      try {
+        const countyName = resolveCountyName(county)
+        if (!countyName) {
+          return {
+            content: [{ type: 'text' as const, text: `Unknown county: "${county}". Use a SC county name like "Greenville" or a numeric code like "23".` }],
+            isError: true,
+          }
+        }
+
+        const result = await searchFilersByCounty(countyName, active_since)
+        let { filers } = result
+
+        if (recent_only) {
+          const cutoff = Date.now() - (2 * 365.25 * 24 * 60 * 60 * 1000)
+          filers = filers.filter(f => {
+            if (!f.lastSubmission) return false
+            const [month, day, year] = f.lastSubmission.split('/')
+            return new Date(+year, +month - 1, +day).getTime() >= cutoff
+          })
+        }
+
+        const grouped = groupFilersByPerson(filers)
+
+        // Filter by office type if specified
+        const filtered = office_type
+          ? grouped.filter(gf => gf.offices.some(o => tokenMatch(office_type, o.officeName)))
+          : grouped
+
+        // Enrich with campaign data when recent_only
+        let enrichmentNote = ''
+        if (recent_only && filtered.length > 0) {
+          const ENRICH_CAP = 50
+          const BATCH_SIZE = 6
+          const toEnrich = filtered.slice(0, ENRICH_CAP)
+
+          for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
+            const batch = toEnrich.slice(i, i + BATCH_SIZE)
+            await Promise.allSettled(
+              batch.map(async (gf) => {
+                const summary = await cachedGetCampaignSummary(gf.candidateFilerId)
+                const allOffices = [
+                  ...summary.openReports.map(r => ({ ...r, status: 'open' as const })),
+                  ...summary.closedReports.map(r => ({ ...r, status: 'closed' as const })),
+                ]
+                gf.normalizedOffice = normalizeOfficeName(gf.offices[0]?.officeName || '')
+                // For county search, pick any open campaign or the first one
+                const match = allOffices.find(o => o.status === 'open') || allOffices[0]
+                if (match) {
+                  gf.primaryOfficeName = match.officeName
+                  gf.campaignStatus = match.status
+                  gf.balance = match.balance
+                  gf.campaignId = match.officeId
+                }
+              })
+            )
+          }
+          if (filtered.length > ENRICH_CAP) {
+            enrichmentNote = `\nNote: Enriched ${ENRICH_CAP} of ${filtered.length} filers with campaign data.`
+          }
+        }
+
+        const parts: string[] = []
+        if (result.totalFailed > 0) {
+          parts.push(`Note: ${result.totalFailed} of 26 searches failed; results may be incomplete.`)
+        }
+        if (filtered.length === 0) {
+          parts.push(`No filers found in ${countyName} County${office_type ? ` matching office type "${office_type}"` : ''}${recent_only ? ' (last 2 years)' : ''}`)
+        } else {
+          if (recent_only) {
+            parts.push('=== ENRICHED RESULTS ===\nThese results include campaignId, balance, and campaign status for each filer.\nDo NOT call get_campaign_summary for these filers — the data is already included below.\n===')
+          }
+          parts.push(`${filtered.length} filer(s) found in ${countyName} County${office_type ? ` matching "${office_type}"` : ''}${recent_only ? ' (last 2 years)' : ''}:${enrichmentNote}`)
+          parts.push(JSON.stringify(filtered, null, 2))
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: parts.join('\n') }],
         }
       } catch (error) {
         return {

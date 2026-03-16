@@ -26,6 +26,8 @@ sc-elections-mcp/
 │   ├── api/
 │   │   ├── ethics-client.ts  # HTTP client for ethicsfiling.sc.gov
 │   │   └── vrems-client.ts   # Session-aware client for vrems.scvotes.sc.gov
+│   ├── data/
+│   │   └── sc-counties.ts    # County codes, city-to-county map, resolution helpers
 │   ├── parsers/
 │   │   ├── candidate-search.ts  # HTML table → structured data
 │   │   ├── candidate-detail.ts  # HTML detail page → structured data
@@ -37,42 +39,43 @@ sc-elections-mcp/
 │       ├── overlap.ts        # find_donor_overlap (cross-candidate donor analysis)
 │       ├── sei.ts            # get_sei_details (aggregates 17 sub-endpoints)
 │       └── vrems.ts          # list_elections, search_candidates, get_candidate_details
-├── tests/                   # vitest unit + smoke tests (33 tests)
+├── tests/                   # vitest unit + smoke tests (62 tests)
 ├── package.json
 ├── tsconfig.json
 ├── CLAUDE.md
 └── API-REFERENCE.md
 ```
 
-## MCP Tools (16 tools)
+## MCP Tools (17 tools)
 
 ### Search & Lookup (Ethics)
 1. **search_filers** — Search for candidates/officials by name. Default limit 50 (0 for all). Use last name only for best results.
-2. **list_filers_by_office** — Find all filers for a specific office (sweeps entire database, cached 30 min). Returns grouped results — one entry per person with offices[] sub-array. With `recent_only: true`, enriches with campaign balance, status, campaignId. `active_since` filters by year.
-3. **get_filer_profile** — Full profile (address, positions, offices)
-4. **list_office_names** — Discover exact office name strings from the filer database. Use these with list_filers_by_office for precise matching. Optional keyword filter. First call triggers sweep (~10-15 sec), cached 30 min after.
+2. **list_filers_by_office** — Find all filers for a specific office (sweeps entire database, cached 30 min). Uses token-based matching — word order doesn't matter ("House District 13" matches "District 13 House"). Returns grouped results — one entry per person with offices[] sub-array. With `recent_only: true`, enriches with campaign balance, status, campaignId. `active_since` filters by year.
+3. **list_filers_by_county** — Find all Ethics Commission filers in a specific SC county. Matches by county name in office name OR by city-to-county mapping from filer address. Optional `office_type` filter (e.g. "House", "County Council"). Same enrichment as list_filers_by_office.
+4. **get_filer_profile** — Full profile (address, positions, offices)
+5. **list_office_names** — Discover exact office name strings from the filer database. Use these with list_filers_by_office for precise matching. Optional keyword filter. First call triggers sweep (~10-15 sec), cached 30 min after.
 
 ### Campaign Finance (Ethics)
-5. **get_campaign_summary** — Report summary with balances, open/closed offices
-6. **get_campaign_reports** — List filed reports. campaign_id optional (auto-resolved), office hint to disambiguate
-7. **get_campaign_report_details** — Detailed breakdown of a single report
-8. **get_contributions** — Contributions with metadata header for verification. campaign_id optional (auto-resolved), office hint, summary mode (top 20 donors), year/min_amount/limit filters. Auto-resolves candidate name from profile when summary.name is null.
-9. **get_expenditures** — Expenditures with metadata header. Same features as get_contributions. Auto-resolves candidate name.
+6. **get_campaign_summary** — Report summary with balances, open/closed offices
+7. **get_campaign_reports** — List filed reports. campaign_id optional (auto-resolved), office hint to disambiguate
+8. **get_campaign_report_details** — Detailed breakdown of a single report
+9. **get_contributions** — Contributions with metadata header for verification. campaign_id optional (auto-resolved), office hint, summary mode (top 20 donors), year/min_amount/limit filters. Auto-resolves candidate name from profile when summary.name is null.
+10. **get_expenditures** — Expenditures with metadata header. Same features as get_contributions. Auto-resolves candidate name.
 
 ### Cross-Candidate Search (Ethics)
-10. **search_expenditures** — Search expenditures across ALL candidates. At least one filter required. `slim` strips address fields, `summary` groups by vendor. Auto-truncates at 60K chars. Default limit 200.
-11. **search_contributions** — Search contributions across ALL candidates. `slim` strips address/occupation, `summary` groups by candidate. Auto-truncates at 60K chars. Office filter broken server-side.
+11. **search_expenditures** — Search expenditures across ALL candidates. At least one filter required. `slim` strips address fields, `summary` groups by vendor. Auto-truncates at 60K chars. Default limit 200.
+12. **search_contributions** — Search contributions across ALL candidates. `slim` strips address/occupation, `summary` groups by candidate. Auto-truncates at 60K chars. Office filter broken server-side.
 
 ### Donor Analysis (Ethics)
-12. **find_donor_overlap** — Find shared donors between candidates. Two modes: explicit (up to 20 comparison IDs) or office-based (auto-discovers candidates, max 25). Normalizes donor names (Last,First ↔ First Last, strips suffixes). Returns ranked by total given.
+13. **find_donor_overlap** — Find shared donors between candidates. Two modes: explicit (up to 20 comparison IDs) or office-based (auto-discovers candidates, max 25). Normalizes donor names (Last,First ↔ First Last, strips suffixes). Returns ranked by total given.
 
 ### Statement of Economic Interest (Ethics)
-13. **get_sei_details** — Full SEI report: positions, business interests, income, gifts, travel, creditors, lobbyist contacts
+14. **get_sei_details** — Full SEI report: positions, business interests, income, gifts, travel, creditors, lobbyist contacts
 
 ### Candidate Filings (VREMS)
-14. **list_elections** — Browse SC elections by type (General/Special/Local) and year. Keyword filter + default limit 50. Use keyword to filter by location (e.g. "Sumter").
-15. **search_candidates** — Search candidates in an election. Default limit 50 (0 for all). Rich data via CSV export.
-16. **get_candidate_details** — Candidate filing details with document download links (filing form PDF, fee receipt)
+15. **list_elections** — Browse SC elections by type (General/Special/Local) and year. Keyword filter + default limit 50. Use keyword to filter by location (e.g. "Sumter").
+16. **search_candidates** — Search candidates in an election. Default limit 50 (0 for all). Rich data via CSV export. County accepts names ("Greenville") or codes ("23").
+17. **get_candidate_details** — Candidate filing details with document download links (filing form PDF, fee receipt)
 
 ## Recommended Workflow for Broad Candidate Discovery
 
@@ -92,7 +95,7 @@ The Ethics cross-search tools (search_expenditures/search_contributions) are use
 
 ## Key API Quirks
 
-- **Office name inconsistency** (CRITICAL): The Ethics API uses different office names across endpoints. A county council candidate may appear under a shortened or coded office name in expenditure/contribution results vs their full office name in their profile. When using the office filter in cross-search tools, use the broadest match possible (e.g. "greenville" not "greenville county council") or omit office and search by candidate name instead.
+- **Office name inconsistency**: The Ethics API uses different office names across endpoints. A county council candidate may appear under a shortened or coded office name in expenditure/contribution results vs their full office name in their profile. `list_filers_by_office` uses token-based matching (order-independent, "Other Office" segments ignored), so "House District 13" matches "District 13 House". When using the office filter in cross-search tools, use the broadest match possible or omit office and search by candidate name instead.
 - Ethics name search body is a raw JSON string (`"haley"`), not `{"name": "haley"}`
 - Ethics uses mixed POST/PUT (Contributor/Vendor grids use PUT)
 - VREMS candidate search returns HTML, not JSON — parsed with node-html-parser
@@ -114,7 +117,7 @@ Test against real APIs — no mocks needed. Good test candidates:
 ```bash
 npm run dev      # Run with tsx (development)
 npm run build    # Compile to dist/
-npm test         # Run vitest (33 tests: 32 unit + 1 smoke)
+npm test         # Run vitest (62 tests: 61 unit + 1 smoke)
 npm start        # Run compiled version
 npm run pack:mcpb  # Build Desktop Extension (.mcpb) for Claude Desktop
 ```

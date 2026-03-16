@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { getElectionYears, getElections, searchCandidates, getCandidateDetailHtml } from '../api/vrems-client.js'
 import { parseCandidateDetail } from '../parsers/candidate-detail.js'
+import { resolveCountyCode } from '../data/sc-counties.js'
 
 export function registerVremsTools(server: McpServer) {
   server.tool(
@@ -69,7 +70,7 @@ export function registerVremsTools(server: McpServer) {
     {
       election_id: z.string().describe('Election ID from list_elections results'),
       office: z.string().optional().describe('Office filter code. Omit for ALL offices (recommended for county-level queries — filtering by code will miss offices like Probate Judge, Treasurer, Sheriff, County Council Chair). Common codes: 380=State House, 379=State Senate, 469=County Council District, 405=County Council Chair, 399=Probate Judge, 403=County Treasurer, 398=Sheriff, 400=Clerk of Court, 401=Coroner, 402=Auditor, 473=County Council At Large. Use -1 explicitly for all.'),
-      county: z.string().optional().describe('County code (e.g. "23" for Greenville). Omit for all counties.'),
+      county: z.string().optional().describe('County name (e.g. "Greenville") or code (e.g. "23"). Names are auto-resolved to codes. Omit for all counties.'),
       party: z.string().optional().describe('Party filter: Republican, Democratic, Libertarian, Nonpartisan, or All'),
       status: z.string().optional().describe('Status filter: All, Active, Elected, DefeatedInPrimary, Withdrew, etc.'),
       first_name: z.string().optional().describe('Candidate first name search'),
@@ -78,10 +79,22 @@ export function registerVremsTools(server: McpServer) {
     },
     async ({ election_id, office, county, party, status, first_name, last_name, limit }) => {
       try {
+        // Resolve county name to code if not already numeric
+        let resolvedCounty = county
+        if (county && !/^\d+$/.test(county)) {
+          resolvedCounty = resolveCountyCode(county)
+          if (!resolvedCounty) {
+            return {
+              content: [{ type: 'text' as const, text: `Unknown county: "${county}". Use a SC county name like "Greenville" or a numeric code like "23".` }],
+              isError: true,
+            }
+          }
+        }
+
         const result = await searchCandidates({
           electionId: election_id,
           office,
-          county,
+          county: resolvedCounty,
           party,
           status,
           firstName: first_name,
