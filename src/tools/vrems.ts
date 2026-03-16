@@ -68,7 +68,7 @@ export function registerVremsTools(server: McpServer) {
     'Search for candidates in a specific SC election. Returns contact info, filing fee, address, status. Default limit 50 results (0 for all) — statewide elections can return 500+. Get election_id from list_elections. To bridge to campaign finance, use search_filers with candidate names — the two systems don\'t share IDs. Try last name only if no match.',
     {
       election_id: z.string().describe('Election ID from list_elections results'),
-      office: z.string().optional().describe('Office filter code (-1 for all). Common: 380=State House, 379=State Senate, 469=County Council District'),
+      office: z.string().optional().describe('Office filter code. Omit for ALL offices (recommended for county-level queries — filtering by code will miss offices like Probate Judge, Treasurer, Sheriff, County Council Chair). Common codes: 380=State House, 379=State Senate, 469=County Council District, 405=County Council Chair, 399=Probate Judge, 403=County Treasurer, 398=Sheriff, 400=Clerk of Court, 401=Coroner, 402=Auditor, 473=County Council At Large. Use -1 explicitly for all.'),
       county: z.string().optional().describe('County code (e.g. "23" for Greenville). Omit for all counties.'),
       party: z.string().optional().describe('Party filter: Republican, Democratic, Libertarian, Nonpartisan, or All'),
       status: z.string().optional().describe('Status filter: All, Active, Elected, DefeatedInPrimary, Withdrew, etc.'),
