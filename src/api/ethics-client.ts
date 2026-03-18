@@ -473,6 +473,14 @@ export async function cachedGetCampaignSummary(candidateFilerId: number): Promis
   return data
 }
 
+// Used by normalizeOfficeName (and enrichGroupedFilersWithCampaignData via normalizeOfficeName)
+const STATE_BODIES = new Set(['Governor', 'Lt Governor', 'Attorney General', 'Secretary of State',
+  'Comptroller General', 'State Treasurer', 'Superintendent of Education', 'State House',
+  'State Senate', 'Solicitor'])
+const COUNTY_BODIES = new Set(['County Council', 'Sheriff', 'Probate Judge', 'Auditor',
+  'Coroner', 'Clerk of Court', 'School Board'])
+const CITY_BODIES = new Set(['City Council', 'Mayor'])
+
 export function normalizeOfficeName(raw: string): NormalizedOffice {
   if (!raw) return { raw, normalized: raw }
 
@@ -517,6 +525,14 @@ export function normalizeOfficeName(raw: string): NormalizedOffice {
     }
   }
 
+  // Compute jurisdiction tier from body
+  let jurisdictionTier: 'city' | 'county' | 'state' | undefined
+  if (body) {
+    if (STATE_BODIES.has(body)) jurisdictionTier = 'state'
+    else if (COUNTY_BODIES.has(body)) jurisdictionTier = 'county'
+    else if (CITY_BODIES.has(body)) jurisdictionTier = 'city'
+  }
+
   // Build normalized name
   let normalized = raw
     .replace(/^Other\s+Office,?\s*/i, '')
@@ -535,7 +551,7 @@ export function normalizeOfficeName(raw: string): NormalizedOffice {
     normalized = raw
   }
 
-  return { raw, normalized, district, body }
+  return { raw, normalized, district, body, jurisdictionTier }
 }
 
 function extractDistrictNumber(text: string): string | undefined {
@@ -543,6 +559,52 @@ function extractDistrictNumber(text: string): string | undefined {
     text.match(/Dist\.?\s*(\d+)/i) ||
     text.match(/Seat\s+(\d+)/i)
   return m?.[1]
+}
+
+/**
+ * Enrich an array of GroupedFiler objects with campaign data (balance, status, campaignId).
+ * Mutates in-place — callers must pass the same reference they later read from.
+ * Batches 6 at a time, capped at 50 total enrichments.
+ * @param officeMatcher — if provided, tokenMatch-filters campaign offices before picking best match (list_filers_by_office behavior). When omitted, picks any open campaign or the first one.
+ * @returns true if enrichment was capped (grouped.length > 50)
+ * @internal — exported for testing
+ */
+export async function enrichGroupedFilersWithCampaignData(
+  grouped: GroupedFiler[],
+  officeMatcher?: string,
+): Promise<boolean> {
+  const ENRICH_CAP = 50
+  const BATCH_SIZE = 6
+  const toEnrich = grouped.slice(0, ENRICH_CAP)
+
+  for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
+    const batch = toEnrich.slice(i, i + BATCH_SIZE)
+    await Promise.allSettled(
+      batch.map(async (gf) => {
+        const summary = await cachedGetCampaignSummary(gf.candidateFilerId)
+        const allOffices = [
+          ...summary.openReports.map(r => ({ ...r, status: 'open' as const })),
+          ...summary.closedReports.map(r => ({ ...r, status: 'closed' as const })),
+        ]
+        gf.normalizedOffice = normalizeOfficeName(gf.offices[0]?.officeName || '')
+        let match: (typeof allOffices)[number] | undefined
+        if (officeMatcher) {
+          const matches = allOffices.filter(o => tokenMatch(officeMatcher, o.officeName))
+          match = matches.find(o => o.status === 'open') || matches[0]
+        } else {
+          match = allOffices.find(o => o.status === 'open') || allOffices[0]
+        }
+        if (match) {
+          gf.primaryOfficeName = match.officeName
+          gf.campaignStatus = match.status
+          gf.balance = match.balance
+          gf.campaignId = match.officeId
+        }
+      })
+    )
+  }
+
+  return grouped.length > ENRICH_CAP
 }
 
 export function resolveCampaignContext(

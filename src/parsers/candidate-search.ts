@@ -31,13 +31,14 @@ function parseRow(row: ReturnType<typeof parse>): VremsSearchCandidate | null {
   // href = "CandidateDetail/?candidateId=12345&electionId=22121&searchType=Default"
   const params = new URLSearchParams(href.split('?')[1] || '')
 
+  const rawRunningMate = cells[3]?.text?.trim() || ''
   return {
     candidateId: params.get('candidateId') || row.getAttribute('data-key') || '',
     electionId: params.get('electionId') || '',
     office: cells[0]?.text?.trim() || '',
     counties: cells[1]?.text?.trim() || '',
     name: cells[2]?.text?.trim() || '',
-    runningMate: cells[3]?.text?.trim() || '',
+    runningMate: rawRunningMate === 'Not Designated' ? '' : rawRunningMate,
     party: cells[4]?.text?.trim() || '',
     filingLocation: cells[5]?.text?.trim() || '',
     status: cells[6]?.text?.trim() || '',

@@ -66,18 +66,19 @@ export function registerVremsTools(server: McpServer) {
 
   server.tool(
     'search_candidates',
-    'Search for candidates in a specific SC election. Returns contact info, filing fee, address, status. Default limit 50 results (0 for all) — statewide elections can return 500+. Get election_id from list_elections. To bridge to campaign finance, use search_filers with candidate names — the two systems don\'t share IDs. Try last name only if no match.',
+    'Search for candidates in a specific SC election. Returns contact info, filing fee, address, status, dateFiled. Default limit 50 results (0 for all) — statewide elections can return 500+. Get election_id from list_elections. To bridge to campaign finance, use search_filers with candidate names — the two systems don\'t share IDs. Try last name only if no match. ELECTION ID NOTE: County council candidates (nonpartisan) file under the General election ID, not the Primary. State House candidates also use the General election ID even though they have primaries. Use list_elections to confirm IDs for each cycle.',
     {
       election_id: z.string().describe('Election ID from list_elections results'),
-      office: z.string().optional().describe('Office filter code. Omit for ALL offices (recommended for county-level queries — filtering by code will miss offices like Probate Judge, Treasurer, Sheriff, County Council Chair). Common codes: 380=State House, 379=State Senate, 469=County Council District, 405=County Council Chair, 399=Probate Judge, 403=County Treasurer, 398=Sheriff, 400=Clerk of Court, 401=Coroner, 402=Auditor, 473=County Council At Large. Use -1 explicitly for all.'),
+      office: z.string().optional().describe('Office filter. IMPORTANT: Text matching is unreliable — use numeric codes for reliable filtering. Known codes: 380=State House, 379=State Senate, 469=County Council District, 405=County Council Chair, 399=Probate Judge, 403=County Treasurer, 398=Sheriff, 400=Clerk of Court, 401=Coroner, 402=Auditor, 473=County Council At Large. Statewide office codes are not fully documented — for Governor, AG, and other statewide offices, omit this filter and search by last_name instead. Omit for ALL offices (recommended for county-level queries). Use -1 explicitly for all.'),
       county: z.string().optional().describe('County name (e.g. "Greenville") or code (e.g. "23"). Names are auto-resolved to codes. Omit for all counties.'),
-      party: z.string().optional().describe('Party filter: Republican, Democratic, Libertarian, Nonpartisan, or All'),
-      status: z.string().optional().describe('Status filter: All, Active, Elected, DefeatedInPrimary, Withdrew, etc.'),
+      party: z.string().optional().describe('Party filter: Republican, Democratic, Libertarian, Nonpartisan, or All. Note: "United Citizens" party candidates exist but are not listed here — omit party filter to see all.'),
+      status: z.string().optional().describe('Status filter. Known values: Active (filed, not withdrawn), Elected (won the race), DefeatedInPrimary, DefeatedInGeneral, Withdrew (filed then withdrew — use this to exclude dropped candidates). Omit or pass All for everyone.'),
       first_name: z.string().optional().describe('Candidate first name search'),
       last_name: z.string().optional().describe('Candidate last name search'),
+      date_filed: z.string().optional().describe('Filter by filing date to get only candidates who filed on that day. Format must match what VREMS returns (typically M/D/YYYY without leading zeros, e.g. "3/18/2026"). Use this during filing periods to pull only today\'s new filers without fetching the full candidate list. Note: only applies to CSV results — ignored in HTML fallback mode.'),
       limit: z.number().optional().describe('Max candidates to return (default 50, 0 for all). Statewide elections can return hundreds.'),
     },
-    async ({ election_id, office, county, party, status, first_name, last_name, limit }) => {
+    async ({ election_id, office, county, party, status, first_name, last_name, date_filed, limit }) => {
       try {
         // Resolve county name to code if not already numeric
         let resolvedCounty = county
@@ -104,15 +105,24 @@ export function registerVremsTools(server: McpServer) {
         const effectiveLimit = limit === undefined ? 50 : limit
 
         if (result.candidates.length > 0) {
-          const totalCount = result.candidates.length
-          const limited = effectiveLimit > 0 ? result.candidates.slice(0, effectiveLimit) : result.candidates
+          let candidates = result.candidates
+
+          // Apply date_filed filter (client-side — CSV always returns all dates)
+          if (date_filed) {
+            candidates = candidates.filter(c => (c.dateFiled || '') === date_filed)
+          }
+
+          const totalCount = candidates.length
+          const limited = effectiveLimit > 0 ? candidates.slice(0, effectiveLimit) : candidates
           const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
             ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all.`
             : ''
           return {
             content: [{
               type: 'text' as const,
-              text: `${totalCount} candidate(s) found (rich data from CSV export):${limitNote}\n${JSON.stringify(limited, null, 2)}`,
+              text: totalCount === 0
+                ? `No candidates found matching filters${date_filed ? ` (no filings on ${date_filed})` : ''}`
+                : `${totalCount} candidate(s) found (rich data from CSV export):${limitNote}\n${JSON.stringify(limited, null, 2)}`,
             }],
           }
         }

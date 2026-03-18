@@ -127,6 +127,8 @@ export interface NormalizedOffice {
   normalized: string
   district?: string
   body?: string
+  /** Jurisdiction tier derived from office body type */
+  jurisdictionTier?: 'city' | 'county' | 'state'
 }
 
 /** Grouped filer result — one entry per person, with all their office filings */

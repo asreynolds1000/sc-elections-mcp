@@ -8,6 +8,7 @@ import { registerCrossSearchTools } from '../src/tools/cross-search.js'
 import { registerOverlapTools } from '../src/tools/overlap.js'
 import { registerSeiTools } from '../src/tools/sei.js'
 import { registerVremsTools } from '../src/tools/vrems.js'
+import { registerCrossReferenceTools } from '../src/tools/cross-reference.js'
 
 const EXPECTED_TOOLS = [
   // Search & Lookup (Ethics)
@@ -33,6 +34,8 @@ const EXPECTED_TOOLS = [
   'list_elections',
   'search_candidates',
   'get_candidate_details',
+  // Cross-System (Ethics + VREMS)
+  'find_expected_filers',
 ] as const
 
 describe('MCP server smoke test', () => {
@@ -47,6 +50,7 @@ describe('MCP server smoke test', () => {
   registerOverlapTools(server)
   registerSeiTools(server)
   registerVremsTools(server)
+  registerCrossReferenceTools(server)
 
   const client = new Client({ name: 'test-client', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -56,7 +60,7 @@ describe('MCP server smoke test', () => {
     await server.close()
   })
 
-  it('registers exactly 17 tools', async () => {
+  it('registers exactly 18 tools', async () => {
     await Promise.all([
       server.connect(serverTransport),
       client.connect(clientTransport),
@@ -65,7 +69,7 @@ describe('MCP server smoke test', () => {
     const { tools } = await client.listTools()
     const toolNames = tools.map((t) => t.name).sort()
 
-    expect(tools).toHaveLength(17)
+    expect(tools).toHaveLength(18)
     expect(toolNames).toEqual([...EXPECTED_TOOLS].sort())
   })
 })

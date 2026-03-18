@@ -7,10 +7,11 @@ import { registerCrossSearchTools } from './tools/cross-search.js'
 import { registerSeiTools } from './tools/sei.js'
 import { registerVremsTools } from './tools/vrems.js'
 import { registerOverlapTools } from './tools/overlap.js'
+import { registerCrossReferenceTools } from './tools/cross-reference.js'
 
 const server = new McpServer({
   name: 'sc-elections-mcp',
-  version: '0.5.1',
+  version: '0.7.0',
 })
 
 // Ethics Commission tools (ethicsfiling.sc.gov)
@@ -22,6 +23,9 @@ registerSeiTools(server)
 
 // SC Votes / VREMS tools (vrems.scvotes.sc.gov)
 registerVremsTools(server)
+
+// Cross-system tools (Ethics + VREMS)
+registerCrossReferenceTools(server)
 
 async function main() {
   const transport = new StdioServerTransport()
