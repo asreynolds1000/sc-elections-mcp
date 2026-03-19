@@ -142,7 +142,15 @@ export function registerVremsTools(server: McpServer) {
         }
 
         return {
-          content: [{ type: 'text' as const, text: 'No candidates found matching filters' }],
+          content: [{
+            type: 'text' as const,
+            text: [
+              `No VREMS candidates found for this election/filter combination.`,
+              `Try a different election_id — use list_elections to find the right one.`,
+              `Remove name filters to see all candidates for the office.`,
+              `Check the Ethics Commission via search_filers.`,
+            ].join('\n'),
+          }],
         }
       } catch (error) {
         return {

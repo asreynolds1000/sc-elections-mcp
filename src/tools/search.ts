@@ -19,18 +19,39 @@ export function registerSearchTools(server: McpServer) {
         if (office) {
           results = results.filter(r => tokenMatch(office, r.officeName || ''))
         }
+        if (results.length === 0) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: [
+                `No Ethics Commission filers found for "${name}".`,
+                `The API does exact last-name matching — try a shorter or different spelling.`,
+                `Search VREMS via search_candidates for current ballot filings.`,
+                `Use list_filers_by_office if you know the office they're running for.`,
+              ].join('\n'),
+            }],
+          }
+        }
+
         const effectiveLimit = limit === undefined ? 50 : limit
         const totalCount = results.length
         const limited = effectiveLimit > 0 ? results.slice(0, effectiveLimit) : results
+        const grouped = groupFilersByPerson(limited)
+
+        // Enrich with normalized office names so district numbers are visible
+        for (const gf of grouped) {
+          if (!gf.normalizedOffice) {
+            gf.normalizedOffice = normalizeOfficeName(gf.offices[0]?.officeName || '')
+          }
+        }
+
         const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
-          ? `Showing ${effectiveLimit} of ${totalCount} results. Use limit=0 for all.\n`
+          ? `Showing ${grouped.length} grouped from ${effectiveLimit} of ${totalCount} results. Use limit=0 for all.\n`
           : ''
         return {
           content: [{
             type: 'text' as const,
-            text: results.length === 0
-              ? `No filers found matching "${name}"`
-              : `${limitNote}${JSON.stringify(limited, null, 2)}`,
+            text: `${limitNote}${JSON.stringify(grouped, null, 2)}`,
           }],
         }
       } catch (error) {
@@ -99,7 +120,12 @@ export function registerSearchTools(server: McpServer) {
           parts.push(`Note: ${result.totalFailed} of 26 searches failed; results may be incomplete.`)
         }
         if (grouped.length === 0) {
-          parts.push(`No filers found for office matching "${office}"${needsEnrichment ? ' (with recent_only filter)' : ''}${active_only ? ' with open campaign' : ''}${jurisdiction ? ` with jurisdiction="${jurisdiction}"` : ''}`)
+          parts.push([
+            `No filers found for office matching "${office}"${needsEnrichment ? ' (with recent_only filter)' : ''}${active_only ? ' with open campaign' : ''}${jurisdiction ? ` with jurisdiction="${jurisdiction}"` : ''}.`,
+            `Use list_office_names to find exact office name strings.`,
+            `For district-based offices, include the district number (e.g. "Greenville County Council District 17").`,
+            `Check VREMS via search_candidates for current ballot filings.`,
+          ].join('\n'))
         } else {
           if (needsEnrichment) {
             parts.push('=== ENRICHED RESULTS ===\nThese results include campaignId, balance, and campaign status for each filer.\nDo NOT call get_campaign_summary for these filers — the data is already included below.\n===')
