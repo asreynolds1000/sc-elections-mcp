@@ -15,20 +15,28 @@ export function registerSearchTools(server: McpServer) {
     },
     async ({ name, office, limit }) => {
       try {
-        let results = await searchFilers(name)
+        const allResults = await searchFilers(name)
+        let results = allResults
         if (office) {
           results = results.filter(r => tokenMatch(office, r.officeName || ''))
         }
         if (results.length === 0) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: [
+          const message = office && allResults.length > 0
+            ? [
+                `Found ${allResults.length} filer(s) named "${name}", but none matched office filter "${office}".`,
+                `Try a broader office filter, or omit it to see all offices for this name.`,
+                `Use list_office_names to discover valid office name formats.`,
+              ]
+            : [
                 `No Ethics Commission filers found for "${name}".`,
                 `The API does exact last-name matching — try a shorter or different spelling.`,
                 `Search VREMS via search_candidates for current ballot filings.`,
                 `Use list_filers_by_office if you know the office they're running for.`,
-              ].join('\n'),
+              ]
+          return {
+            content: [{
+              type: 'text' as const,
+              text: message.join('\n'),
             }],
           }
         }

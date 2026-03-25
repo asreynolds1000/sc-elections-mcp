@@ -133,10 +133,13 @@ export function registerVremsTools(server: McpServer) {
           const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
             ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all.`
             : ''
+          const dateWarning = date_filed
+            ? `\nWARNING: date_filed filter "${date_filed}" was ignored — CSV export is unavailable and HTML fallback does not support date filtering. Results are unfiltered.`
+            : ''
           return {
             content: [{
               type: 'text' as const,
-              text: `${totalCount} candidate(s) found (basic data from HTML — CSV export unavailable):${limitNote}\n${JSON.stringify(limited, null, 2)}`,
+              text: `${totalCount} candidate(s) found (basic data from HTML — CSV export unavailable):${dateWarning}${limitNote}\n${JSON.stringify(limited, null, 2)}`,
             }],
           }
         }
