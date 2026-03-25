@@ -14,6 +14,7 @@ import type {
   GroupedFiler,
   CrossSearchExpenditure,
   CrossSearchContribution,
+  CrossSearchReport,
   SeiReport,
   SeiReportBody,
   SeiDetails,
@@ -131,7 +132,12 @@ export async function getFilerProfile(
     headers: HEADERS,
     body: JSON.stringify({ candidateFilerId, seiFilerId }),
   })
-  if (!response.ok) throw new Error(`Profile request failed: ${response.status}`)
+  if (!response.ok) {
+    if (response.status === 500 || response.status === 404) {
+      throw new Error(`No filer found with candidate_filer_id=${candidateFilerId} / sei_filer_id=${seiFilerId}`)
+    }
+    throw new Error(`Profile request failed: ${response.status}`)
+  }
   return response.json()
 }
 
@@ -395,7 +401,12 @@ export async function getCampaignSummary(candidateFilerId: number): Promise<Camp
     `${BASE}/Ethics/Get/Public/Candidate/Report/Summary/${candidateFilerId}`,
     { headers: HEADERS }
   )
-  if (!response.ok) throw new Error(`Campaign summary request failed: ${response.status}`)
+  if (!response.ok) {
+    if (response.status === 500 || response.status === 404) {
+      throw new Error(`No candidate found with filer ID ${candidateFilerId}`)
+    }
+    throw new Error(`Campaign summary request failed: ${response.status}`)
+  }
   return response.json()
 }
 
@@ -418,7 +429,12 @@ export async function getCampaignReportDetails(reportId: number): Promise<Campai
     `${BASE}/Ethics/Get/Public/Candidate/Report/Details/${reportId}`,
     { headers: HEADERS }
   )
-  if (!response.ok) throw new Error(`Report details request failed: ${response.status}`)
+  if (!response.ok) {
+    if (response.status === 500 || response.status === 404) {
+      throw new Error(`No report found with ID ${reportId}`)
+    }
+    throw new Error(`Report details request failed: ${response.status}`)
+  }
   return response.json()
 }
 
@@ -884,6 +900,35 @@ export async function searchContributions(filters: {
       amount: filters.amount || 0,
     }),
   })
+  if (!response.ok) return []
+  return response.json()
+}
+
+// ============================================================
+// Cross-Candidate Report Search
+// ============================================================
+
+export async function searchCampaignReports(filters: {
+  candidate?: string
+  office?: string
+  reportType?: string
+  electionYear?: number
+  electionType?: string
+}): Promise<CrossSearchReport[]> {
+  const response = await fetch(
+    `${BASE}/Candidate/Report/Public/Campaign/Get/Reports`,
+    {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({
+        candidate: filters.candidate || '',
+        office: filters.office || '',
+        reportType: filters.reportType || 'Any',
+        electionyear: filters.electionYear || 0,
+        electionType: filters.electionType || 'Any',
+      }),
+    }
+  )
   if (!response.ok) return []
   return response.json()
 }

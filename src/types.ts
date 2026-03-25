@@ -154,6 +154,21 @@ export interface GroupedFiler {
   normalizedOffice?: NormalizedOffice
 }
 
+/** Cross-candidate campaign report search result (from /Candidate/Report/Public/Campaign/Get/Reports) */
+export interface CrossSearchReport {
+  candidateFilerId: number
+  seiFilerId: number
+  credentialId: number
+  campaignId: number
+  reportId: number
+  office: string
+  reportName: string
+  candidateName: string
+  electionyear: string
+  electionType: string
+  lastUpdated: string
+}
+
 /** Individual campaign report entry */
 export interface CampaignReport {
   reportId: number

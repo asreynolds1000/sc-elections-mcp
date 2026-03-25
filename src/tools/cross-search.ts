@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { searchExpenditures, searchContributions, normalizeOfficeName } from '../api/ethics-client.js'
-import type { CrossSearchContribution, CrossSearchExpenditure } from '../types.js'
+import { searchExpenditures, searchContributions, searchCampaignReports, normalizeOfficeName } from '../api/ethics-client.js'
+import type { CrossSearchContribution, CrossSearchExpenditure, CrossSearchReport } from '../types.js'
 
 const CHAR_BUDGET = 60_000
 
@@ -233,6 +233,128 @@ export function registerCrossSearchTools(server: McpServer) {
             text: enriched.length === 0
               ? 'No contributions found matching filters'
               : `${totalCount} contribution(s) found:${limitNote}${budgetWarning}\n${finalText}`,
+          }],
+        }
+      } catch (error) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+          isError: true,
+        }
+      }
+    }
+  )
+
+  server.tool(
+    'search_campaign_reports',
+    'Search campaign disclosure reports across ALL candidates statewide. Find who has filed Initial reports, Quarterly reports, etc. for a given election year. Great for discovering new candidates entering races. "Who has filed?" → use report_type="Initial" + election_year=current year + since="today". Default limit 200 (0 for all). Responses auto-truncate at 60K chars.',
+    {
+      candidate: z.string().optional().describe('Candidate name filter (partial match, "Last, First" format)'),
+      office: z.string().optional().describe('Office name filter (partial match, e.g. "Greenville County Council", "House")'),
+      report_type: z.enum(['Any', 'Initial', 'Quarterly', 'Pre-Election', 'Final']).optional()
+        .describe('Report type. "Initial" = new campaign openings. "Quarterly" = all quarterly filings. "Pre-Election" = pre-election reports. "Final" = campaign closings. "Any" or omit for all types.'),
+      election_year: z.number().int().min(2000).describe('Election year (e.g. 2026). Required — API returns nothing without it.'),
+      election_type: z.enum(['Any', 'Primary', 'General', 'Special', 'Municipal']).optional()
+        .describe('Election type filter. Default "Any".'),
+      limit: z.number().int().min(0).optional().describe('Max results to return (default 200, 0 for all).'),
+      since: z.string().optional().describe('Date filter. Accepts YYYY-MM-DD or "today" or "yesterday". Only returns reports updated on/after this date. Use "today" for daily pulls.'),
+      slim: z.boolean().optional().describe('If true, return only candidateName, office, reportName, electionType, and lastUpdated. Strips all IDs. Default false.'),
+    },
+    async ({ candidate, office, report_type, election_year, election_type, limit, since, slim }) => {
+      try {
+        const hasAnyFilter = candidate || office || (report_type && report_type !== 'Any') || election_year || (election_type && election_type !== 'Any')
+        if (!hasAnyFilter) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: 'At least one filter is required. Common usage: report_type="Initial" + election_year=2026 to find new campaign filings.',
+            }],
+            isError: true,
+          }
+        }
+
+        let results = await searchCampaignReports({
+          candidate,
+          office,
+          reportType: report_type || 'Any',
+          electionYear: election_year,
+          electionType: election_type,
+        })
+
+        // Resolve since shortcuts and apply client-side date filter
+        if (since) {
+          let resolvedSince = since
+          if (since.toLowerCase() === 'today') {
+            resolvedSince = new Date().toISOString().slice(0, 10)
+          } else if (since.toLowerCase() === 'yesterday') {
+            const d = new Date()
+            d.setDate(d.getDate() - 1)
+            resolvedSince = d.toISOString().slice(0, 10)
+          }
+          // Append T00:00:00 to date-only strings so both sides parse as local time
+          const sinceInput = resolvedSince.includes('T') ? resolvedSince : `${resolvedSince}T00:00:00`
+          const sinceDate = new Date(sinceInput)
+          if (isNaN(sinceDate.getTime())) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: `Invalid "since" date: "${since}". Use YYYY-MM-DD, "today", or "yesterday".`,
+              }],
+              isError: true,
+            }
+          }
+          // Validate calendar date (catch Feb 30 → March 2 overflow)
+          if (!resolvedSince.includes('T')) {
+            const [y, m, d] = resolvedSince.split('-').map(Number)
+            if (sinceDate.getFullYear() !== y || sinceDate.getMonth() + 1 !== m || sinceDate.getDate() !== d) {
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: `Invalid calendar date: "${since}" does not exist. Use a real date in YYYY-MM-DD format.`,
+                }],
+                isError: true,
+              }
+            }
+          }
+          results = results.filter(r => new Date(r.lastUpdated) >= sinceDate)
+        }
+
+        // Normalize office names and sort by lastUpdated descending (newest first)
+        const enriched = results
+          .map(r => ({
+            ...r,
+            candidateName: r.candidateName.trim(),
+            office: r.office.trim(),
+            normalizedOffice: normalizeOfficeName(r.office.trim()),
+          }))
+          .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
+
+        const effectiveLimit = limit === undefined ? 200 : limit
+        const totalCount = enriched.length
+        const limited = effectiveLimit > 0 ? enriched.slice(0, effectiveLimit) : enriched
+
+        // Apply slim mode — strip IDs, keep only human-readable fields
+        const output = slim
+          ? limited.map(r => ({
+              candidateName: r.candidateName,
+              office: r.office,
+              reportName: r.reportName,
+              electionType: r.electionType,
+              lastUpdated: r.lastUpdated,
+            }))
+          : limited
+
+        const limitNote = effectiveLimit > 0 && totalCount > effectiveLimit
+          ? `\nShowing ${effectiveLimit} of ${totalCount}. Use limit=0 for all.`
+          : ''
+
+        const { finalText, budgetWarning } = applyCharBudget(output)
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: enriched.length === 0
+              ? 'No campaign reports found matching filters'
+              : `${totalCount} campaign report(s) found:${limitNote}${budgetWarning}\n${finalText}`,
           }],
         }
       } catch (error) {
