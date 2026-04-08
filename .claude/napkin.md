@@ -8,6 +8,8 @@
 
 - **search_filers returned raw results, not grouped (2026-03-19):** Was the only search tool not using `groupFilersByPerson`. Fixed: now groups + enriches with `normalizedOffice`. Consistent with `list_filers_by_office` and `list_filers_by_county`.
 
+- **get_campaign_reports used wrong candidateFilerId (2026-04-08):** Passed `candidate_filer_id` (user input) instead of `resolved.resolvedFilerId` to `getCampaignReports()`. When a person has campaigns under multiple filer IDs (e.g., Shaw: 50495 for Senate, 27934 for County Council), `getCampaignSummary` correctly returns ALL campaigns regardless of which ID you pass (accounts are consolidated server-side). `resolveCampaignContext` correctly picks the right campaign and extracts `resolvedFilerId`. But `get_campaign_reports` ignored that and passed the original input, causing the reports API to return wrong data. `get_contributions` and `get_expenditures` already used `resolved.resolvedFilerId` correctly. One-line fix.
+
 ## Known Quirks
 
 - `normalizeDonorName` has false positive: initials like "J.R." become "jr" after period stripping, then get stripped as a suffix. "J.R. Smith" and "John Smith" would merge.

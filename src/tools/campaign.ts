@@ -56,7 +56,7 @@ export function registerCampaignTools(server: McpServer) {
           return { content: [{ type: 'text' as const, text: resolved.error }], isError: true }
         }
 
-        const reports = await getCampaignReports(resolved.resolvedCampaignId, candidate_filer_id)
+        const reports = await getCampaignReports(resolved.resolvedCampaignId, resolved.resolvedFilerId)
         const header = `Campaign: ${resolved.context.candidateName} — ${resolved.context.officeName} (campaignId: ${resolved.context.campaignId}, status: ${resolved.context.campaignStatus})`
 
         return {
