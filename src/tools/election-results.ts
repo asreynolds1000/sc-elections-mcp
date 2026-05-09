@@ -49,7 +49,7 @@ export function registerElectionResultsTools(server: McpServer) {
     async ({ event_id, office, division, limit }) => {
       try {
         const effectiveLimit = limit || 50
-        const result = await searchContests([event_id], { office, division, size: Math.min(effectiveLimit, 200) })
+        const result = await searchContests([event_id], { office, division, size: 200 })
 
         if (result.contests.length === 0) {
           const filters = [office && `office="${office}"`, division && `division="${division}"`].filter(Boolean).join(', ')
