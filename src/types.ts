@@ -470,3 +470,46 @@ export interface CandidateSearchParams {
   party?: string
   filingLocation?: string
 }
+
+// ============================================================
+// Election History types (electionhistory.scvotes.gov)
+// ============================================================
+
+export interface ElectionEvent {
+  id: number
+  name: string
+  group: string
+  count: number
+}
+
+export interface ContestCandidate {
+  candidateId: number
+  displayName: string
+  party: string | null
+  nVotes: number
+  pctCandidateVotes: number
+  isWinner: boolean
+  isWriteIn: boolean
+}
+
+export interface ContestResult {
+  id: number
+  office: string
+  division: string
+  isSpecial: boolean
+  isRunoff: boolean
+  eventDate: string
+  candidates: ContestCandidate[]
+}
+
+export interface GranularRow {
+  candidateId: number
+  votes: number
+  pct: number
+  winner: boolean
+}
+
+export interface PrecinctResult {
+  precinct: string
+  candidates: { name: string; votes: number; pct: number; winner: boolean }[]
+}

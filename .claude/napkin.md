@@ -96,6 +96,37 @@ Note added to `search_candidates` description.
 
 ---
 
+## Improvement Ideas — from 2026-05-08 HD24 crossover analysis session
+
+### High priority
+
+**1. Certified election results tool (SCVotes GraphQL API)**
+The MCP tracks candidate filings and campaign finance but has NO access to actual vote counts. During the HD24 analysis, we had to manually construct GraphQL queries against `electionhistory.scvotes.gov/api/graphql_pr` to get certified results. This API is public, no auth required, and covers 2008-present with precinct-level granularity.
+
+Proposed tools:
+- `search_election_results(year, office?, district?, county?)` — wraps `SearchContests` query. Returns contest IDs, candidates, vote counts, percentages, winner flag.
+- `get_precinct_results(contest_id, county?)` — wraps `GetContestGranular`. Returns precinct-level vote data. County filter critical (statewide races return all 46 counties).
+- `list_election_events(year?)` — wraps `GetEventSuggestions`. Returns event IDs needed for contest search.
+
+Implementation notes:
+- GraphQL queries are large (2-4KB each) — store as string constants, not inline
+- `contestId` must be integer (string silently returns empty)
+- Precinct names are prefixed with "Precinct " in the response
+- Statewide races nest: State > County > Precinct (3 levels). District races: District > County > Precinct.
+- Pseudo-candidates (IDs 1, 4, 6, 10) = Total Registered, Total Votes, Write-In, Ballots Cast — filter these out of candidate results
+- Full query fragments saved at `~/Projects/ASR Enterprises/Political Campaigns/reference/sc-election-graphql-queries.json`
+- API reference at `~/Projects/ASR Enterprises/Political Campaigns/reference/sc-election-apis.md`
+
+**2. Cross-reference precincts to house/senate districts**
+Currently no way to answer "which precincts are in HD24?" without an external voter file. The SCVotes API returns precincts within a contest (e.g., the HD24 contest shows its precincts), but there's no direct "list precincts by district" tool. Could build a cache: for each state house/senate contest, store the precinct list, then use that to filter statewide race results to a specific district's geography.
+
+### Medium priority
+
+**3. Voter registration & turnout stats tool (VREMS API)**
+`vrems.scvotes.sc.gov/Statistics/` — public, no auth. County-level registration and turnout by race, gender, age. Useful for demographic analysis without needing an L2 voter file. Endpoints documented in `sc-election-apis.md`.
+
+---
+
 ## Desktop Extension (.mcpb) — added 2026-03-09
 
 Added one-click Claude Desktop install via `.mcpb` format. Released as v0.5.2.

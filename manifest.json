@@ -1,8 +1,8 @@
 {
   "manifest_version": "0.2",
   "name": "sc-elections-mcp",
-  "version": "0.5.1",
-  "description": "MCP server for South Carolina elections: campaign finance, contributions, expenditures, SEI disclosures, and candidate filings",
+  "version": "0.9.0",
+  "description": "MCP server for South Carolina elections: campaign finance, contributions, expenditures, SEI disclosures, candidate filings, and certified election results",
   "author": {
     "name": "Alex Reynolds"
   },
