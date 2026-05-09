@@ -286,6 +286,7 @@ export async function getContestGranular(
         })
       }
       if (candidates.length > 0) {
+        candidates.sort((a, b) => b.votes - a.votes)
         precincts.push({ precinct: name, candidates })
       }
     }

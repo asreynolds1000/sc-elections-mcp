@@ -93,8 +93,9 @@ export function registerElectionResultsTools(server: McpServer) {
     {
       contest_id: z.number().describe('Contest ID from search_election_results. Must be a number.'),
       county: z.string().optional().describe('Filter to a specific county (e.g. "Greenville", "Richland"). Required for statewide races. Case-insensitive substring match.'),
+      top_candidates: z.number().optional().describe('Show only the top N candidates per precinct (default: all for small races, top 2 for large multi-candidate races). Totals always show all candidates.'),
     },
-    async ({ contest_id, county }) => {
+    async ({ contest_id, county, top_candidates }) => {
       try {
         const result = await getContestGranular(contest_id, county)
 
@@ -122,15 +123,21 @@ export function registerElectionResultsTools(server: McpServer) {
           }
         }
 
+        const nCandidates = result.precincts[0]?.candidates.length || 0
+        const nPrecincts = result.precincts.length
+        const effectiveTopN = top_candidates || (nCandidates > 3 && nPrecincts > 50 ? 2 : nCandidates)
+        const truncated = effectiveTopN < nCandidates
+
         const lines: string[] = [
           `${result.contest.office} — ${result.contest.division}`,
-          `${result.precincts.length} precincts${county ? ` in ${county}` : ''}:`,
+          `${nPrecincts} precincts${county ? ` in ${county}` : ''}${truncated ? ` (showing top ${effectiveTopN} of ${nCandidates} candidates per precinct)` : ''}:`,
           '',
         ]
 
         for (const p of result.precincts) {
           lines.push(`${p.precinct}:`)
-          for (const c of p.candidates) {
+          const displayCandidates = p.candidates.slice(0, effectiveTopN)
+          for (const c of displayCandidates) {
             const pct = (c.pct * 100).toFixed(1)
             const winner = c.winner ? ' WINNER' : ''
             lines.push(`  ${c.name}: ${c.votes.toLocaleString()} (${pct}%)${winner}`)

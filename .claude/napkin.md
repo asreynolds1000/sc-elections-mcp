@@ -122,6 +122,14 @@ Currently no way to answer "which precincts are in HD24?" without an external vo
 
 ### Medium priority
 
+### Stress test findings (2026-05-08)
+
+All three tools implemented and tested live. Issues found and fixed:
+- **Pagination:** `search_election_results` only fetched page 1 (200 results). 2024 general has 991 contests — county council races were invisible. Fixed: auto-paginates up to 10 pages when office/division filters are applied.
+- **Invalid contest IDs:** Raw GraphQL error exposed to caller. Fixed: caught and wrapped in friendly message.
+- **Response overflow:** `get_precinct_results` for Greenville County presidential race (151 precincts x 7 candidates) produced 52K chars, exceeding MCP response limit. Fixed: added `top_candidates` param with auto-truncation (top 2 per precinct when >3 candidates AND >50 precincts). Totals always show all candidates.
+- **Candidate sort order:** API returns candidates in arbitrary order. Fixed: sort by votes descending in client before returning.
+
 **3. Voter registration & turnout stats tool (VREMS API)**
 `vrems.scvotes.sc.gov/Statistics/` — public, no auth. County-level registration and turnout by race, gender, age. Useful for demographic analysis without needing an L2 voter file. Endpoints documented in `sc-election-apis.md`.
 
