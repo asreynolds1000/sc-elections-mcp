@@ -42,14 +42,14 @@ export function registerElectionResultsTools(server: McpServer) {
     'Search certified election results — candidates, vote totals, percentages, winner. Get event_id from list_election_events. Returns contest IDs needed for get_precinct_results. Filters by office name and division/district substring. Results are from the SC Election Commission certified database.',
     {
       event_id: z.number().describe('Election event ID from list_election_events'),
-      office: z.string().optional().describe('Filter by office name substring (e.g. "State House", "President", "County Council", "State Senate"). Case-insensitive.'),
+      office: z.string().optional().describe('Filter by office name substring. Exact names in the database: "President of the United States", "U.S. House", "State Senate", "State House", "County Council Member", "Clerk of Court", "Register of Deeds", plus county-specific offices (Sheriff, Coroner, etc.). Case-insensitive substring match, so "State House" matches "State House". When filtering, all pages are searched automatically.'),
       division: z.string().optional().describe('Filter by division/district substring (e.g. "District 24", "Greenville", "Congressional District 4"). Case-insensitive.'),
       limit: z.number().optional().describe('Max results to return (default 50). The API returns up to 200 per page.'),
     },
     async ({ event_id, office, division, limit }) => {
       try {
         const effectiveLimit = limit || 50
-        const result = await searchContests([event_id], { office, division, size: 200 })
+        const result = await searchContests([event_id], { office, division })
 
         if (result.contests.length === 0) {
           const filters = [office && `office="${office}"`, division && `division="${division}"`].filter(Boolean).join(', ')

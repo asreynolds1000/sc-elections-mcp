@@ -154,31 +154,42 @@ export async function getEventSuggestions(year?: number): Promise<{
 
 export async function searchContests(
   eventIds: number[],
-  options?: { office?: string; division?: string; page?: number; size?: number }
-): Promise<{ contests: ContestResult[]; totalResults: number; totalPages: number }> {
-  const page = options?.page || 1
-  const size = options?.size || 200
+  options?: { office?: string; division?: string }
+): Promise<{ contests: ContestResult[]; totalResults: number }> {
+  const hasFilters = !!(options?.office || options?.division)
+  const pageSize = 200
+  const maxPages = hasFilters ? 10 : 1
 
-  const data = await queryGraphQL('SearchContests', {
-    pagination: { page, size },
-    filters: { global: { events: eventIds }, ...EMPTY_FILTERS },
-  }, SEARCH_CONTESTS)
+  let allResults: any[] = []
+  let totalResults = 0
 
-  const search = data.search || {}
-  let results: any[] = search.results || []
+  for (let page = 1; page <= maxPages; page++) {
+    const data = await queryGraphQL('SearchContests', {
+      pagination: { page, size: pageSize },
+      filters: { global: { events: eventIds }, ...EMPTY_FILTERS },
+    }, SEARCH_CONTESTS)
 
-  results = results.filter((r: any) => !r.isVoterStat)
+    const search = data.search || {}
+    const results: any[] = search.results || []
+    totalResults = search.meta?.totalResults || 0
+    const totalPages = search.meta?.totalPages || 1
+
+    allResults = allResults.concat(results)
+    if (page >= totalPages) break
+  }
+
+  let filtered = allResults.filter((r: any) => !r.isVoterStat)
 
   if (options?.office) {
     const needle = options.office.toLowerCase()
-    results = results.filter((r: any) => (r.office?.name || '').toLowerCase().includes(needle))
+    filtered = filtered.filter((r: any) => (r.office?.name || '').toLowerCase().includes(needle))
   }
   if (options?.division) {
     const needle = options.division.toLowerCase()
-    results = results.filter((r: any) => (r.division?.displayName || '').toLowerCase().includes(needle))
+    filtered = filtered.filter((r: any) => (r.division?.displayName || '').toLowerCase().includes(needle))
   }
 
-  const contests: ContestResult[] = results.map((r: any) => ({
+  const contests: ContestResult[] = filtered.map((r: any) => ({
     id: r.id,
     office: r.office?.name || '',
     division: r.division?.displayName || '',
@@ -200,8 +211,7 @@ export async function searchContests(
 
   return {
     contests,
-    totalResults: search.meta?.totalResults || contests.length,
-    totalPages: search.meta?.totalPages || 1,
+    totalResults,
   }
 }
 
@@ -214,13 +224,21 @@ export async function getContestGranular(
   precincts: PrecinctResult[]
   counties: string[]
 }> {
-  const data = await queryGraphQL('GetContestGranular', {
-    contestId,
-    divisionFilter: null,
-    splitParty: false,
-    voteChannels: false,
-    singleVoteChannel: null,
-  }, GET_CONTEST_GRANULAR)
+  let data: any
+  try {
+    data = await queryGraphQL('GetContestGranular', {
+      contestId,
+      divisionFilter: null,
+      splitParty: false,
+      voteChannels: false,
+      singleVoteChannel: null,
+    }, GET_CONTEST_GRANULAR)
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('does not have a division')) {
+      throw new Error(`Contest ${contestId} not found or has no results data`)
+    }
+    throw err
+  }
 
   const granular = data.contestGranularData || {}
   const contestInfo = data.contest
