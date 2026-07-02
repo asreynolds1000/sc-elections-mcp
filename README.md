@@ -1,6 +1,6 @@
 # sc-elections-mcp
 
-MCP server for South Carolina elections data. Combines two public data sources into 15 tools for researching candidates, campaign finance, and official disclosures.
+MCP server for South Carolina elections data. Combines public data sources into 22 tools for researching candidates, campaign finance, certified election results, and official disclosures.
 
 **No API keys required** — all data comes from public government websites.
 
@@ -54,6 +54,7 @@ Requires **Node.js >= 20**.
 | `list_filers_by_office` | Find all filers for an office; enriches with balance/campaignId when recent_only | `office`, `recent_only` |
 | `get_filer_profile` | Full profile: address, phone, positions, offices | `candidate_filer_id`, `sei_filer_id` |
 | `list_office_names` | Discover exact office name strings from the database (e.g. "District 50 House") | `keyword`? |
+| `list_filers_by_county` | Find all candidates/officials who have filed with the Ethics Commission in a specific county | `county` |
 
 ### Campaign Finance
 
@@ -71,6 +72,7 @@ Requires **Node.js >= 20**.
 |------|-------------|------------|
 | `search_expenditures` | Search expenditures across ALL candidates statewide (default limit 200) | `candidate`, `vendor_name`, `office`, `year`, `amount`, `limit`? |
 | `search_contributions` | Search contributions across ALL candidates statewide (default limit 200) | `candidate`, `contributor_name`, `office`, `year`, `amount`, `limit`? |
+| `search_campaign_reports` | Search campaign disclosure reports across ALL candidates statewide (who filed Initial/Quarterly reports for a given year) | `year`, `report_type`?, `limit`? |
 
 ### Statement of Economic Interest
 
@@ -85,6 +87,23 @@ Requires **Node.js >= 20**.
 | `list_elections` | Browse elections by type and year; keyword filter + default limit 50 | `election_type`, `year`, `keyword`?, `limit`? |
 | `search_candidates` | Search candidates in an election (default limit 50) — includes phone, email, address | `election_id`, `limit`?, plus optional filters |
 | `get_candidate_details` | Filing details with document download links (filing form PDF, fee receipt) | `candidate_id`, `election_id` |
+
+### Election Results (SC Election Commission)
+
+Certified vote data (2008-present) — distinct from the Ethics/VREMS sources above. Chain: events → contests → precincts.
+
+| Tool | Description | Key params |
+|------|-------------|------------|
+| `list_election_events` | List SC elections from the certified results database (2008-present); returns event IDs | `year`? |
+| `search_election_results` | Certified results for an event — candidates, vote totals, percentages, winner | `event_id`, filters |
+| `get_precinct_results` | Precinct-level vote counts and percentages for a specific contest | `contest_id` |
+
+### Cross-Reference & Discovery
+
+| Tool | Description | Key params |
+|------|-------------|------------|
+| `find_expected_filers` | Cross-reference Ethics open campaign accounts vs VREMS ballot filings for a county ("who has an Ethics account but hasn't filed on the ballot") | `county` |
+| `find_donor_overlap` | Find donors who gave to multiple candidates. Three modes: by name, by campaign ID, or by office | `primary_name` + `comparison_names`, or IDs, or `office` |
 
 ### How IDs connect
 
