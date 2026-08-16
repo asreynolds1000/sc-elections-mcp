@@ -4,6 +4,29 @@ const BASE = 'https://electionhistory.scvotes.gov/api/graphql_pr'
 
 const PSEUDO_CANDIDATE_IDS = new Set([1, 4, 6, 10])
 
+/* `candidate.pseudocandidate` is a STRING TAG, not a boolean.
+
+   On a BALLOT QUESTION the two real choices come back tagged "BQ_YES" and "BQ_NO"
+   (candidateIds 7 and 8). Filtering on truthiness therefore threw away the entire
+   result of every referendum in the database — the contest would report zero
+   candidates and zero precincts, which is indistinguishable from "no data published."
+   That is how the 2024 Greenville penny-tax referendum (contest 7322) looked empty
+   while its certified results sat there the whole time.
+
+   Keep BQ_* — those ARE the contest's real options. Drop every other tag (write-in
+   aggregates, undervote/overvote and friends).
+
+   Note the id coercion: this API returns `candidate.id` as a string ("7") but
+   `candidateId` as a number (7), so an uncoerced `Set<number>.has()` silently never
+   matched on the string side. */
+export function isRealChoice(c: any): boolean {
+  const tag = c?.candidate?.pseudocandidate
+  if (tag && !String(tag).startsWith('BQ_')) return false
+  const id = Number(c?.candidate?.id ?? c?.candidateId)
+  if (Number.isFinite(id) && PSEUDO_CANDIDATE_IDS.has(id)) return false
+  return true
+}
+
 // GraphQL query strings from SC Election Commission election history database.
 // Source: https://electionhistory.scvotes.gov
 
@@ -197,7 +220,7 @@ export async function searchContests(
     isRunoff: r.isRunoff || false,
     eventDate: r.event?.startDate || '',
     candidates: (r.candidates || [])
-      .filter((c: any) => !c.candidate?.pseudocandidate && !PSEUDO_CANDIDATE_IDS.has(c.candidate?.id))
+      .filter(isRealChoice)
       .map((c: any): ContestCandidate => ({
         candidateId: c.candidate?.id || 0,
         displayName: c.displayName || '',
@@ -245,7 +268,7 @@ export async function getContestGranular(
 
   const candidateMap = new Map<number, { displayName: string; party: string | null }>()
   for (const c of granular.candidates || []) {
-    if (c.candidate?.pseudocandidate || PSEUDO_CANDIDATE_IDS.has(c.candidateId)) continue
+    if (!isRealChoice(c)) continue
     candidateMap.set(c.candidateId, {
       displayName: c.displayName || '',
       party: null,
@@ -255,40 +278,75 @@ export async function getContestGranular(
   const divisions = granular.divisions || {}
   const topChildren: any[] = divisions.children || []
 
-  const allCounties: string[] = topChildren.map((c: any) => c.division?.displayName || '').filter(Boolean)
+  /* The API returns TWO different division shapes and does not flag which you got.
+     - STATEWIDE contest: county -> precinct. Top-level children are counties.
+     - COUNTY-LEVEL contest (a county referendum, sheriff, council-at-large): there is
+       NO county tier. The top-level divisions ARE the precincts.
 
-  let filteredCounties = topChildren
-  if (county) {
-    const needle = county.toLowerCase()
-    filteredCounties = topChildren.filter((c: any) =>
-      (c.division?.displayName || '').toLowerCase().includes(needle)
-    )
+     This code used to assume the nested shape unconditionally. On a county-level contest
+     that made the inner loop iterate an empty `children`, returning ZERO precincts while
+     `allCounties` filled up with precinct names — a result indistinguishable from "this
+     contest has no precinct data." That is exactly how the 2024 Greenville penny-tax
+     referendum (contest 7322) read as having no precinct breakdown for weeks, while the
+     data sat there the whole time.
+
+     Two notes for anyone tempted to "simplify" this:
+     1. The portal exposes `hasNestedPrecincts`. That describes the SHAPE of the response,
+        not the ABSENCE of data. Do not treat it as "no precinct results."
+     2. If you validate this with a positive control, the control MUST be a contest of the
+        same shape. Checking a district contest proves nothing about a county contest —
+        they take different branches below. */
+  const isNested = topChildren.some((c: any) => (c.children || []).length > 0)
+  const contestDivisionName: string = contestInfo?.division?.displayName || ''
+
+  const allCounties: string[] = isNested
+    ? topChildren.map((c: any) => c.division?.displayName || '').filter(Boolean)
+    : (contestDivisionName ? [contestDivisionName] : [])
+
+  let precinctDivs: any[]
+  if (isNested) {
+    let filteredCounties = topChildren
+    if (county) {
+      const needle = county.toLowerCase()
+      filteredCounties = topChildren.filter((c: any) =>
+        (c.division?.displayName || '').toLowerCase().includes(needle)
+      )
+    }
+    precinctDivs = filteredCounties.flatMap((c: any) => c.children || [])
+  } else {
+    /* Flat shape: the contest already covers exactly one division, so a `county` argument
+       can only be an assertion that it is the division the caller expected. Never use it to
+       filter by precinct NAME — that would silently drop every precinct whose name does not
+       happen to contain the county name (in Greenville, 111 of 151). */
+    const matchesRequestedCounty =
+      !county ||
+      !contestDivisionName ||
+      contestDivisionName.toLowerCase().includes(county.toLowerCase())
+    precinctDivs = matchesRequestedCounty ? topChildren : []
   }
 
   const precincts: PrecinctResult[] = []
-  for (const countyDiv of filteredCounties) {
-    for (const precinctDiv of countyDiv.children || []) {
-      const rawName: string = precinctDiv.division?.displayName || ''
-      const name = rawName.replace(/^Precinct\s+/i, '')
-      if (name.toLowerCase().includes('failsafe') || name.toLowerCase().includes('provisional')) continue
+  for (const precinctDiv of precinctDivs) {
+    const rawName: string = precinctDiv.division?.displayName || ''
+    const name = rawName.replace(/^Precinct\s+/i, '')
+    if (name.toLowerCase().includes('failsafe') || name.toLowerCase().includes('provisional')) continue
 
-      const rows: GranularRow[] = precinctDiv.granularRow || []
-      const candidates: PrecinctResult['candidates'] = []
-      for (const row of rows) {
-        if (PSEUDO_CANDIDATE_IDS.has(row.candidateId)) continue
-        const cand = candidateMap.get(row.candidateId)
-        if (!cand) continue
-        candidates.push({
-          name: cand.displayName,
-          votes: row.votes,
-          pct: row.pct,
-          winner: row.winner,
-        })
-      }
-      if (candidates.length > 0) {
-        candidates.sort((a, b) => b.votes - a.votes)
-        precincts.push({ precinct: name, candidates })
-      }
+    const rows: GranularRow[] = precinctDiv.granularRow || []
+    const candidates: PrecinctResult['candidates'] = []
+    for (const row of rows) {
+      if (PSEUDO_CANDIDATE_IDS.has(row.candidateId)) continue
+      const cand = candidateMap.get(row.candidateId)
+      if (!cand) continue
+      candidates.push({
+        name: cand.displayName,
+        votes: row.votes,
+        pct: row.pct,
+        winner: row.winner,
+      })
+    }
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.votes - a.votes)
+      precincts.push({ precinct: name, candidates })
     }
   }
 
