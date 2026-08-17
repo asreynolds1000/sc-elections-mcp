@@ -101,6 +101,16 @@ The Ethics cross-search tools (search_expenditures/search_contributions) are use
 - VREMS candidate search returns HTML, not JSON — parsed with node-html-parser
 - VREMS CSV export requires session cookie from prior search POST
 - SEI overview endpoint returns `{ gridRows: [...] }` — use `reportId` and `filingYear`
+- **`isWinner` is unpopulated on the contest-search endpoint (OPEN, 2026-08-17).** `searchContests`
+  returns `isWinner: false` for *every* candidate in many contests — verified on 2024 State House
+  District 24, which Bannister won 60.37-39.48 with both flagged false. The granular
+  (`getContestGranular`) endpoint DOES set `winner` correctly, so this is per-endpoint, not
+  per-contest. `search_election_results` currently passes the flag through as-is, so a consumer
+  that trusts it will report "no winner" for a decided race — the same silent-wrong class as the
+  county-precinct bugs fixed in 0.9.1. The alexreynolds.com fork already works around this by
+  dropping the field when no candidate is flagged and telling the model to infer from certified
+  totals (watch for multi-seat contests: school board and at-large council elect more than one).
+  Deciding whether the MCP should do the same is an open call — it changes what the tool asserts.
 
 ## Testing
 
