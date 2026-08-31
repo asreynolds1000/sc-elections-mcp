@@ -83,6 +83,7 @@ The deployment-relevant source files are:
 | `UPSTREAM_CIRCUIT_FAILURE_THRESHOLD` | `3` | Consecutive `403`, `408`, `429`, `5xx`, or network failures before one instance opens a target circuit. `403` counts because that is what a government WAF returns when it starts blocking you. |
 | `UPSTREAM_CIRCUIT_RESET_MS` | `60000` | Delay before one half-open probe is allowed in that instance. |
 
+| `MCP_ACCESS_TOKEN` | unset | Shared secret. When set, a request must present it as `Authorization: Bearer <token>` or `X-MCP-Token`. Unset means open, which is correct for local stdio use. **A hosted deployment should set this**: the rate limit is per warm instance, not global, so the URL alone is not sufficient protection. Compared in constant time. |
 | `UPSTREAM_TIMEOUT_MS` | `15000` | Per-request upstream timeout. Caps held sockets on the long-running listener and billable compute on serverless when an upstream hangs. |
 | `MCP_TRUST_PROXY_HEADERS` | unset | Long-running listener only. When `1`, rate-limit identity trusts `X-Forwarded-For` / `CF-Connecting-IP`. **Leave unset unless a trusted proxy overwrites those headers** — otherwise a caller sends a fresh value per request and bypasses the limit entirely. |
 

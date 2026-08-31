@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+import { timingSafeEqual } from 'node:crypto'
 import { createMcpServer } from './server.js'
 import { InMemoryRateLimitStore, SlidingWindowRateLimiter } from './resilience/rate-limiter.js'
 
@@ -11,6 +12,7 @@ export interface McpFetchHandlerOptions {
   rateLimiter?: SlidingWindowRateLimiter
   allowedOrigins?: readonly string[]
   callerId?: (request: Request) => string
+  accessToken?: string
 }
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -52,6 +54,28 @@ function defaultCallerId(request: Request): string {
   return forwarded?.split(',')[0]?.trim() || 'unknown'
 }
 
+/**
+ * Optional shared-secret gate.
+ *
+ * When MCP_ACCESS_TOKEN is set, a request must present it as a Bearer token or an
+ * X-MCP-Token header. Unset means open, which is the right default for a package
+ * people run locally; a hosted deployment sets it so the URL alone is not enough.
+ *
+ * Comparison is length-checked then constant-time to avoid leaking the token
+ * through response timing.
+ */
+function tokenAccepted(request: Request, expected: string | undefined): boolean {
+  if (!expected) return true
+  const authorization = request.headers.get('authorization')
+  const bearer = authorization?.toLowerCase().startsWith('bearer ')
+    ? authorization.slice(7).trim()
+    : undefined
+  const presented = bearer ?? request.headers.get('x-mcp-token') ?? ''
+  const a = Buffer.from(presented)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
 function jsonRpcError(status: number, code: number, message: string, headers?: HeadersInit): Response {
   return Response.json({
     jsonrpc: '2.0',
@@ -83,6 +107,7 @@ export function createMcpFetchHandler(
   options: McpFetchHandlerOptions = {},
 ): (request: Request) => Promise<Response> {
   const serverFactory = options.serverFactory ?? createMcpServer
+  const accessToken = options.accessToken ?? process.env.MCP_ACCESS_TOKEN
   const allowedOrigins = options.allowedOrigins ?? configuredOrigins()
   const callerId = options.callerId ?? defaultCallerId
   const rateLimiter = options.rateLimiter ?? new SlidingWindowRateLimiter({
@@ -96,6 +121,9 @@ export function createMcpFetchHandler(
   })
 
   return async (request: Request): Promise<Response> => {
+    if (!tokenAccepted(request, accessToken)) {
+      return jsonRpcError(401, -32001, 'Unauthorized')
+    }
     if (!originAllowed(request, allowedOrigins)) {
       return jsonRpcError(403, -32000, 'Origin not allowed')
     }
