@@ -149,3 +149,51 @@ breaker can remain per instance, but it must not be represented as global.
 Before release, run `npm test` and `npm run build`, invoke the exported function with an
 MCP `initialize` plus one mocked tool call, and perform any live smoke test only after the
 terms review and with a deliberately small request budget.
+
+## Verified working; ChatGPT does not surface the tools (2026-08-31)
+
+If ChatGPT reports that this connector "is not available in this chat," **do not debug the
+server.** It has been verified working three separate ways, and the evidence is below.
+
+**1. Official SDK client, full lifecycle, against the handler directly.** Driving
+`StreamableHTTPClientTransport` through `connect()` + `listTools()` returned all 22 tools
+and this exchange:
+
+| Step | Method | Status |
+|---|---|---|
+| initialize | POST | 200 |
+| notifications/initialized | POST | 202 |
+| SSE stream attempt | GET | 405 |
+| tools/list | POST | 200 |
+
+The `405` on GET is **correct and expected** for a stateless server. The SDK client's own
+source says so: *"405 indicates that the server does not offer an SSE stream at GET
+endpoint."* It continued and listed tools normally. Stateless operation, the absent
+`Mcp-Session-Id`, and the 405s on GET/DELETE are all fine — none of them is the problem.
+
+**2. Production logs during a real ChatGPT request.** ChatGPT completed **three full
+handshakes in 17 seconds** at the moment a message was sent (13:29:02, 13:29:08, 13:29:19),
+each the same 200/202/200 sequence, all successful. It received the tool definitions and
+then told the user it had no access to the connector.
+
+**3. curl against the live endpoint.** 200 for `Authorization: Bearer <token>`, for a bare
+token, and for `X-MCP-Token`; 401 for none.
+
+**Conclusion: the tools are fetched and not surfaced to the model. That is a ChatGPT client
+defect, not a server one.** Re-check with the logs before spending time on it:
+
+```
+vercel logs sc-elections-mcp.vercel.app --json
+```
+
+A `200 → 202 → 200` triplet timestamped to the moment of a chat message means the
+connection worked and the failure is downstream of us.
+
+⚠️ **ChatGPT is an unreliable narrator here.** It claimed to have "checked the plugin
+catalog," reported the connector absent, and asserted vote totals from a web search as
+though they were authoritative. It cannot introspect its own connector list. Trust the
+server logs over anything the model says about its own configuration.
+
+**Also verified as a real problem, worth checking first:** two registrations of the same
+server (one stdio, one HTTP) both enabled means 22 identically-named tools from two
+sources. Disable one.
