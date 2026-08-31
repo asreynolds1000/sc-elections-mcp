@@ -21,6 +21,7 @@ import type {
   OfficeFilerResult,
 } from '../types.js'
 import { extractCountyFromAddress, extractCountyFromOfficeName } from '../data/sc-counties.js'
+import { upstreamFetch } from '../resilience/upstream-fetch.js'
 
 const BASE = 'https://ethicsfiling.sc.gov/api'
 
@@ -45,7 +46,7 @@ function populateFilerIdCache(filers: EthicsFiler[]) {
 }
 
 export async function searchFilers(name: string): Promise<EthicsFiler[]> {
-  const response = await fetch(`${BASE}/Ethics/Get/Public/Search/By/Filer/Name/`, {
+  const response = await upstreamFetch(`${BASE}/Ethics/Get/Public/Search/By/Filer/Name/`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify(name.trim()),
@@ -127,7 +128,7 @@ export async function getFilerProfile(
   candidateFilerId: number,
   seiFilerId: number
 ): Promise<FilerProfile> {
-  const response = await fetch(`${BASE}/Candidate/Campaign/Get/Personal/Profile`, {
+  const response = await upstreamFetch(`${BASE}/Candidate/Campaign/Get/Personal/Profile`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({ candidateFilerId, seiFilerId }),
@@ -199,7 +200,7 @@ async function sweepAllFilers(): Promise<{ allResults: EthicsFiler[]; failed: nu
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
         try {
-          const response = await fetch(`${BASE}/Ethics/Get/Public/Search/By/Filer/Name/`, {
+          const response = await upstreamFetch(`${BASE}/Ethics/Get/Public/Search/By/Filer/Name/`, {
             method: 'POST',
             headers: HEADERS,
             body: JSON.stringify(letter),
@@ -397,7 +398,7 @@ export async function resolveCandidateName(candidateFilerId: number): Promise<st
 }
 
 export async function getCampaignSummary(candidateFilerId: number): Promise<CampaignSummary> {
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Ethics/Get/Public/Candidate/Report/Summary/${candidateFilerId}`,
     { headers: HEADERS }
   )
@@ -414,7 +415,7 @@ export async function getCampaignReports(
   campaignId: number,
   candidateFilerId: number
 ): Promise<CampaignReport[]> {
-  const response = await fetch(`${BASE}/Ethics/Get/Public/Candidate/Reports`, {
+  const response = await upstreamFetch(`${BASE}/Ethics/Get/Public/Candidate/Reports`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({ campaignId, candidateFilerId }),
@@ -425,7 +426,7 @@ export async function getCampaignReports(
 }
 
 export async function getCampaignReportDetails(reportId: number): Promise<CampaignReportDetails> {
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Ethics/Get/Public/Candidate/Report/Details/${reportId}`,
     { headers: HEADERS }
   )
@@ -442,7 +443,7 @@ export async function getContributions(
   campaignId: number,
   candidateFilerId: number
 ): Promise<CampaignContribution[]> {
-  const response = await fetch(`${BASE}/Candidate/Contribution/Get/All/Campaign/Grid`, {
+  const response = await upstreamFetch(`${BASE}/Candidate/Contribution/Get/All/Campaign/Grid`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({
@@ -459,7 +460,7 @@ export async function getExpenditures(
   campaignId: number,
   candidateFilerId: number
 ): Promise<CampaignExpenditure[]> {
-  const response = await fetch(`${BASE}/Candidate/Expenditure/Get/All/Campaign/Grid`, {
+  const response = await upstreamFetch(`${BASE}/Candidate/Expenditure/Get/All/Campaign/Grid`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({
@@ -860,7 +861,7 @@ export async function searchExpenditures(filters: {
   amount?: number
   expDesc?: string
 }): Promise<CrossSearchExpenditure[]> {
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Candidate/Expenditure/Public/Get/All/Campaign/Expenditures`,
     {
       method: 'POST',
@@ -888,7 +889,7 @@ export async function searchContributions(filters: {
   contributorLoc?: string
   amount?: number
 }): Promise<CrossSearchContribution[]> {
-  const response = await fetch(`${BASE}/Candidate/Contribution/Search/`, {
+  const response = await upstreamFetch(`${BASE}/Candidate/Contribution/Search/`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({
@@ -915,7 +916,7 @@ export async function searchCampaignReports(filters: {
   electionYear?: number
   electionType?: string
 }): Promise<CrossSearchReport[]> {
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Candidate/Report/Public/Campaign/Get/Reports`,
     {
       method: 'POST',
@@ -939,7 +940,7 @@ export async function searchCampaignReports(filters: {
 
 export async function getSeiReportVersions(seiFilerId: number): Promise<SeiReport[]> {
   // Use the overview endpoint which returns { gridRows: [...] }
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Sei/Report/Get/Filed/Overview/${seiFilerId}`,
     { headers: HEADERS }
   )
@@ -958,7 +959,7 @@ export async function getSeiReportVersions(seiFilerId: number): Promise<SeiRepor
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function seiPost(path: string, body: SeiReportBody): Promise<any[]> {
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await upstreamFetch(`${BASE}${path}`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify(body),

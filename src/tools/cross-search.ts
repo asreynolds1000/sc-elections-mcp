@@ -5,6 +5,13 @@ import type { CrossSearchContribution, CrossSearchExpenditure, CrossSearchReport
 
 const CHAR_BUDGET = 60_000
 
+function localDateString(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 /** @internal — exported for testing */
 export function summarizeCrossSearchContributions(results: CrossSearchContribution[]) {
   const byCandidate = new Map<string, { candidateName: string; officeName: string; totalAmount: number; count: number }>()
@@ -284,11 +291,11 @@ export function registerCrossSearchTools(server: McpServer) {
         if (since) {
           let resolvedSince = since
           if (since.toLowerCase() === 'today') {
-            resolvedSince = new Date().toISOString().slice(0, 10)
+            resolvedSince = localDateString(new Date())
           } else if (since.toLowerCase() === 'yesterday') {
             const d = new Date()
             d.setDate(d.getDate() - 1)
-            resolvedSince = d.toISOString().slice(0, 10)
+            resolvedSince = localDateString(d)
           }
           // Append T00:00:00 to date-only strings so both sides parse as local time
           const sinceInput = resolvedSince.includes('T') ? resolvedSince : `${resolvedSince}T00:00:00`

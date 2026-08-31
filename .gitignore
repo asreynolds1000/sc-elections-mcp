@@ -11,3 +11,8 @@ FEEDBACK-LOG.md
 
 # Claude Code local settings (machine-specific, never commit)
 .claude/settings.local.json
+
+# stray tsc output beside the Vercel route source
+api/*.js
+api/*.d.ts
+api/*.js.map

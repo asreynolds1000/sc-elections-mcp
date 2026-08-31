@@ -1,15 +1,12 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { registerSearchTools } from '../src/tools/search.js'
-import { registerCampaignTools } from '../src/tools/campaign.js'
-import { registerCrossSearchTools } from '../src/tools/cross-search.js'
-import { registerOverlapTools } from '../src/tools/overlap.js'
-import { registerSeiTools } from '../src/tools/sei.js'
-import { registerVremsTools } from '../src/tools/vrems.js'
-import { registerCrossReferenceTools } from '../src/tools/cross-reference.js'
+import { createMcpServer } from '../src/server.js'
 
+// Built from createMcpServer() rather than a parallel list of register calls.
+// The old version maintained its own registration list, drifted when
+// election-results tools were added, and nothing caught it because this file
+// was excluded from the vitest include glob.
 const EXPECTED_TOOLS = [
   // Search & Lookup (Ethics)
   'search_filers',
@@ -26,6 +23,7 @@ const EXPECTED_TOOLS = [
   // Cross-Candidate Search (Ethics)
   'search_expenditures',
   'search_contributions',
+  'search_campaign_reports',
   // Donor Analysis (Ethics)
   'find_donor_overlap',
   // SEI (Ethics)
@@ -36,22 +34,14 @@ const EXPECTED_TOOLS = [
   'get_candidate_details',
   // Cross-System (Ethics + VREMS)
   'find_expected_filers',
+  // Certified results
+  'list_election_events',
+  'search_election_results',
+  'get_precinct_results',
 ] as const
 
 describe('MCP server smoke test', () => {
-  const server = new McpServer({
-    name: 'sc-elections-mcp',
-    version: '0.5.0',
-  })
-
-  registerSearchTools(server)
-  registerCampaignTools(server)
-  registerCrossSearchTools(server)
-  registerOverlapTools(server)
-  registerSeiTools(server)
-  registerVremsTools(server)
-  registerCrossReferenceTools(server)
-
+  const server = createMcpServer()
   const client = new Client({ name: 'test-client', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
 
@@ -60,7 +50,7 @@ describe('MCP server smoke test', () => {
     await server.close()
   })
 
-  it('registers exactly 18 tools', async () => {
+  it('registers every tool the server factory wires up', async () => {
     await Promise.all([
       server.connect(serverTransport),
       client.connect(clientTransport),
@@ -69,7 +59,7 @@ describe('MCP server smoke test', () => {
     const { tools } = await client.listTools()
     const toolNames = tools.map((t) => t.name).sort()
 
-    expect(tools).toHaveLength(18)
     expect(toolNames).toEqual([...EXPECTED_TOOLS].sort())
+    expect(tools).toHaveLength(EXPECTED_TOOLS.length)
   })
 })

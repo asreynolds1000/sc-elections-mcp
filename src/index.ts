@@ -1,37 +1,23 @@
 #!/usr/bin/env node
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { registerSearchTools } from './tools/search.js'
-import { registerCampaignTools } from './tools/campaign.js'
-import { registerCrossSearchTools } from './tools/cross-search.js'
-import { registerSeiTools } from './tools/sei.js'
-import { registerVremsTools } from './tools/vrems.js'
-import { registerOverlapTools } from './tools/overlap.js'
-import { registerCrossReferenceTools } from './tools/cross-reference.js'
-import { registerElectionResultsTools } from './tools/election-results.js'
-
-const server = new McpServer({
-  name: 'sc-elections-mcp',
-  version: '0.9.0',
-})
-
-// Ethics Commission tools (ethicsfiling.sc.gov)
-registerSearchTools(server)
-registerCampaignTools(server)
-registerCrossSearchTools(server)
-registerOverlapTools(server)
-registerSeiTools(server)
-
-// SC Votes / VREMS tools (vrems.scvotes.sc.gov)
-registerVremsTools(server)
-
-// Cross-system tools (Ethics + VREMS)
-registerCrossReferenceTools(server)
-
-// SC Election History tools (electionhistory.scvotes.gov)
-registerElectionResultsTools(server)
+import { startMcpHttpServer } from './http-server.js'
+import { createMcpServer } from './server.js'
+import { selectTransportMode } from './transport-mode.js'
 
 async function main() {
+  if (selectTransportMode() === 'http') {
+    const host = process.env.MCP_HOST ?? process.env.HOST ?? '127.0.0.1'
+    const portValue = process.env.MCP_PORT ?? process.env.PORT ?? '3000'
+    const port = Number(portValue)
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new Error('MCP_PORT/PORT must be an integer between 1 and 65535')
+    }
+    await startMcpHttpServer({ host, port })
+    console.error(`sc-elections-mcp listening on http://${host}:${port}/mcp`)
+    return
+  }
+
+  const server = createMcpServer()
   const transport = new StdioServerTransport()
   await server.connect(transport)
 }

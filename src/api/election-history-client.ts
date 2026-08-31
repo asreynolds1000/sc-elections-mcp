@@ -1,4 +1,5 @@
 import type { ElectionEvent, ContestResult, ContestCandidate, PrecinctResult, GranularRow } from '../types.js'
+import { upstreamFetch } from '../resilience/upstream-fetch.js'
 
 const BASE = 'https://electionhistory.scvotes.gov/api/graphql_pr'
 
@@ -122,7 +123,7 @@ query GetContestGranular($contestId: Int!, $divisionFilter: Int, $voteChannelFil
 }`
 
 async function queryGraphQL(operationName: string, variables: Record<string, unknown>, query: string): Promise<any> {
-  const response = await fetch(BASE, {
+  const response = await upstreamFetch(BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ operationName, variables, query }),

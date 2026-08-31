@@ -7,6 +7,7 @@ import type {
 } from '../types.js'
 import { parseCsvExport } from '../parsers/csv-export.js'
 import { parseSearchHtml } from '../parsers/candidate-search.js'
+import { upstreamFetch } from '../resilience/upstream-fetch.js'
 
 const BASE = 'https://vrems.scvotes.sc.gov'
 
@@ -15,7 +16,7 @@ const BASE = 'https://vrems.scvotes.sc.gov'
 // ============================================================
 
 export async function getElectionYears(electionType: string): Promise<VremsElectionYear[]> {
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Candidate/GetYearsByElectionType?electionType=${encodeURIComponent(electionType)}`,
     { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
   )
@@ -24,7 +25,7 @@ export async function getElectionYears(electionType: string): Promise<VremsElect
 }
 
 export async function getElections(electionType: string, year: number): Promise<VremsElection[]> {
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Candidate/GetElections?electionType=${encodeURIComponent(electionType)}&year=${year}`,
     { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
   )
@@ -57,7 +58,7 @@ export async function searchCandidates(
   })
 
   // Step 1: POST search to establish session
-  const searchResponse = await fetch(`${BASE}/Candidate/CandidateSearch/`, {
+  const searchResponse = await upstreamFetch(`${BASE}/Candidate/CandidateSearch/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -81,7 +82,7 @@ export async function searchCandidates(
   if (sessionCookie) {
     // Step 2: GET CSV export with session cookie
     try {
-      const exportResponse = await fetch(`${BASE}/Candidate/ExportSearchResults`, {
+      const exportResponse = await upstreamFetch(`${BASE}/Candidate/ExportSearchResults`, {
         headers: {
           Cookie: sessionCookie.split(';')[0],
         },
@@ -116,7 +117,7 @@ export async function getCandidateDetailHtml(
   candidateId: string,
   electionId: string
 ): Promise<string> {
-  const response = await fetch(
+  const response = await upstreamFetch(
     `${BASE}/Candidate/CandidateDetail/?candidateId=${encodeURIComponent(candidateId)}&electionId=${encodeURIComponent(electionId)}&searchType=Default`
   )
   if (!response.ok) {
