@@ -66,11 +66,14 @@ function defaultCallerId(request: Request): string {
  */
 function tokenAccepted(request: Request, expected: string | undefined): boolean {
   if (!expected) return true
-  const authorization = request.headers.get('authorization')
-  const bearer = authorization?.toLowerCase().startsWith('bearer ')
+  const authorization = request.headers.get('authorization')?.trim()
+  // Accept `Bearer <token>`, a bare token in Authorization, or X-MCP-Token. Client UIs
+  // that expose a generic header table make the bare form easy to produce by accident,
+  // and a 401 there reads as "cannot connect" rather than "wrong header shape".
+  const fromAuthorization = authorization?.toLowerCase().startsWith('bearer ')
     ? authorization.slice(7).trim()
-    : undefined
-  const presented = bearer ?? request.headers.get('x-mcp-token') ?? ''
+    : authorization
+  const presented = fromAuthorization || request.headers.get('x-mcp-token')?.trim() || ''
   const a = Buffer.from(presented)
   const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)

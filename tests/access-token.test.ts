@@ -45,3 +45,17 @@ describe('shared-secret access token', () => {
     expect(res.status).toBe(200)
   })
 })
+
+describe('token header shapes a real client might send', () => {
+  it('accepts a bare token in Authorization, without the Bearer prefix', async () => {
+    const handler = createMcpFetchHandler({ accessToken: TOKEN })
+    const res = await handler(initRequest({ authorization: TOKEN }))
+    expect(res.status).toBe(200)
+  })
+
+  it('tolerates surrounding whitespace', async () => {
+    const handler = createMcpFetchHandler({ accessToken: TOKEN })
+    const res = await handler(initRequest({ authorization: `  Bearer   ${TOKEN}  ` }))
+    expect(res.status).toBe(200)
+  })
+})
