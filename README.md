@@ -13,13 +13,13 @@ MCP server for South Carolina elections data. Combines public data sources into 
 
 ## Installation
 
-### Claude Desktop (easiest)
+### Claude Desktop
 
-1. Download **[sc-elections-mcp.mcpb](https://github.com/asreynolds1000/sc-elections-mcp/releases/latest/download/sc-elections-mcp.mcpb)**
-2. Double-click the file
-3. Click **Install**
+Add this under `mcpServers` in `claude_desktop_config.json` (see Manual config below),
+then restart Claude Desktop. Node.js ships inside Claude Desktop, so there is nothing
+else to install.
 
-That's it. Try asking: *"Who has filed to run for Governor in South Carolina?"*
+Try asking: *"Who has filed to run for Governor in South Carolina?"*
 
 ### Claude Code
 
