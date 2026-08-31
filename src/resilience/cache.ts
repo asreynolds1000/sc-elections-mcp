@@ -92,6 +92,25 @@ async function cacheKey(request: Request, keyPrefix: string): Promise<string> {
  * POST is intentional: every upstream POST in this project is a read-only public-data
  * query. Other methods bypass the cache.
  */
+/**
+ * A 200 response is not automatically a cacheable success. GraphQL returns HTTP 200
+ * with a top-level `errors` array, which the election-history client rejects — caching
+ * that would replay one transient upstream failure for the whole TTL.
+ */
+function isCacheable(serialized: CachedHttpResponse): boolean {
+  const contentType = serialized.headers.find(
+    ([name]) => name.toLowerCase() === 'content-type',
+  )?.[1]
+  if (!contentType?.includes('json')) return true
+  try {
+    const decoded = Buffer.from(serialized.bodyBase64, 'base64').toString('utf8')
+    const parsed = JSON.parse(decoded) as { errors?: unknown }
+    return !(Array.isArray(parsed.errors) && parsed.errors.length > 0)
+  } catch {
+    return true
+  }
+}
+
 export function createCachedFetch(options: CachedFetchOptions): typeof globalThis.fetch {
   const keyPrefix = options.keyPrefix ?? 'sc-elections:upstream'
   const inFlight = new Map<string, Promise<CachedHttpResponse>>()
@@ -113,7 +132,10 @@ export function createCachedFetch(options: CachedFetchOptions): typeof globalThi
       pending = (async () => {
         const response = await (options.fetchImpl ?? globalThis.fetch)(request)
         const serialized = await serializeResponse(response)
-        if (response.ok) {
+        // ttlMs <= 0 means caching is disabled. Storing anyway leaves an entry that
+        // can never be served (it is already expired) and is only removed by a get()
+        // of that same key, i.e. never. That is a pure leak, so skip the write.
+        if (response.ok && options.ttlMs > 0 && isCacheable(serialized)) {
           await options.store.set(key, JSON.stringify(serialized), options.ttlMs)
         }
         return serialized

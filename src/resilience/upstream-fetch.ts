@@ -61,10 +61,15 @@ export function createUpstreamFetch(options: UpstreamFetchOptions = {}): typeof 
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), timeoutMs)
         try {
-          return await (options.fetchImpl ?? globalThis.fetch)(input, {
-            ...init,
-            signal: init?.signal ?? controller.signal,
-          })
+          // createCachedFetch calls this with a Request and no init, so the caller's
+          // signal lives on `input`. Replacing it would silently disable per-call
+          // aborts (sweepAllFilers' 10s cap, for one), so compose instead.
+          const callerSignal =
+            init?.signal ?? (input instanceof Request ? input.signal : undefined)
+          const signal = callerSignal
+            ? AbortSignal.any([callerSignal, controller.signal])
+            : controller.signal
+          return await (options.fetchImpl ?? globalThis.fetch)(input, { ...init, signal })
         } finally {
           clearTimeout(timer)
         }
