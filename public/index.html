@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>sc-elections-mcp</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 34rem; margin: 12vh auto; padding: 0 1.5rem; }
+  code { font-size: .9em; background: rgba(128,128,128,.15); padding: .15em .4em; border-radius: 3px; }
+  h1 { font-size: 1.4rem; margin-bottom: .25rem; }
+  p { margin: 1rem 0; }
+  .muted { opacity: .7; font-size: .9rem; }
+</style>
+<h1>sc-elections-mcp</h1>
+<p>This is a Model Context Protocol server for South Carolina elections data: candidates,
+campaign finance, donors, certified results, and official disclosures, drawn from the SC
+Ethics Commission, SC Votes / VREMS, and the certified results database.</p>
+<p>The MCP endpoint is <code>/mcp</code>. It is not a web page and requires an access token.</p>
+<p>To run it locally instead, with no token and no hosting:<br>
+<code>npx -y sc-elections-mcp</code></p>
+<p class="muted">Source and documentation:
+<a href="https://github.com/asreynolds1000/sc-elections-mcp">github.com/asreynolds1000/sc-elections-mcp</a></p>

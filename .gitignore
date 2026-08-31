@@ -16,3 +16,7 @@ FEEDBACK-LOG.md
 api/*.js
 api/*.d.ts
 api/*.js.map
+
+# Vercel link file (contains project + org ids, machine-local)
+.vercel
+.env*

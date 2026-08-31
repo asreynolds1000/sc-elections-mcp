@@ -6,5 +6,6 @@
       "source": "/mcp",
       "destination": "/api/mcp"
     }
-  ]
+  ],
+  "outputDirectory": "public"
 }
