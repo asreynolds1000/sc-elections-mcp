@@ -1,8 +1,11 @@
-# sc-elections-mcp
+# SC Elections MCP: South Carolina campaign finance, filings and results for AI assistants
 
-MCP server for South Carolina elections data. Combines public data sources into 22 tools for researching candidates, campaign finance, certified election results, and official disclosures.
+- **What:** An MCP server with 22 tools over public South Carolina data: SC Ethics Commission campaign finance and Statements of Economic Interest, SC Votes (VREMS) candidate filings, and certified election results. It needs no API keys.
+- **For:** Anyone researching South Carolina candidates, campaign money and results with Claude or another MCP client. Alex Reynolds builds and maintains it. Next steps are tracked privately.
+- **Runs:** As a local stdio server from the `sc-elections-mcp` npm package (`npx -y sc-elections-mcp`). A change reaches users when a new version is published to npm. The same code also runs as a token-protected HTTP function on Vercel (`api/mcp.ts`, see `docs/HOSTING.md`). Data comes live from ethicsfiling.sc.gov, vrems.scvotes.sc.gov and the SC Election Commission results site.
+- **Status:** Live (2026-11-23). npm shows version 0.9.1, and the Vercel endpoint answers 401 without a token, as designed. The last code change was 2026-10-24.
 
-**No API keys required** — all data comes from public government websites.
+Working notes for agents: `CLAUDE.md`. API details: `API-REFERENCE.md`.
 
 ## Data Sources
 
@@ -85,17 +88,17 @@ Requires **Node.js >= 20**.
 | Tool | Description | Key params |
 |------|-------------|------------|
 | `list_elections` | Browse elections by type and year; keyword filter + default limit 50 | `election_type`, `year`, `keyword`?, `limit`? |
-| `search_candidates` | Search candidates in an election (default limit 50) — includes phone, email, address | `election_id`, `limit`?, plus optional filters |
+| `search_candidates` | Search candidates in an election (default limit 50). Includes phone, email, address | `election_id`, `limit`?, plus optional filters |
 | `get_candidate_details` | Filing details with document download links (filing form PDF, fee receipt) | `candidate_id`, `election_id` |
 
 ### Election Results (SC Election Commission)
 
-Certified vote data (2008-present) — distinct from the Ethics/VREMS sources above. Chain: events → contests → precincts.
+Certified vote data (2008-present), distinct from the Ethics/VREMS sources above. Chain: events → contests → precincts.
 
 | Tool | Description | Key params |
 |------|-------------|------------|
 | `list_election_events` | List SC elections from the certified results database (2008-present); returns event IDs | `year`? |
-| `search_election_results` | Certified results for an event — candidates, vote totals, percentages, winner | `event_id`, filters |
+| `search_election_results` | Certified results for an event: candidates, vote totals, percentages, winner | `event_id`, filters |
 | `get_precinct_results` | Precinct-level vote counts and percentages for a specific contest | `contest_id` |
 
 ### Cross-Reference & Discovery
@@ -129,7 +132,7 @@ VREMS tools use: electionId → candidateId
 
 2. get_contributions(candidate_filer_id: 27353, office: "Governor", summary: true)
    → Auto-resolves campaignId, returns top 20 donors + totals
-   → Metadata header confirms: "Henry McMaster — Governor"
+   → Metadata header confirms: "Henry McMaster, Governor"
 
 3. get_campaign_reports(candidate_filer_id: 27353)
    → Auto-resolves to most recent campaign
@@ -147,7 +150,7 @@ For candidates with multiple campaigns, use `office` hint or explicit `campaign_
    → Only Sumter-area elections (not all 200+ local elections)
 
 2. search_candidates({ election_id: "22152", status: "Elected" })
-   → Who won each race — names, contact info, party
+   → Who won each race: names, contact info, party
 
 3. search_filers("winner name")
    → Bridge to Ethics: get candidateFilerId, seiFilerId
@@ -176,11 +179,11 @@ For staggered terms (e.g. county council), check multiple election cycles to fin
 
 These two data sources are independent systems with no shared identifiers:
 
-- **Use `list_filers_by_office` for broad discovery.** For questions like "who has filed for [office]", use `list_filers_by_office` with `recent_only: true` — it sweeps the entire Ethics Commission database by office name and enriches results with campaign balance, status, and campaignId. Takes 10-15 seconds but finds candidates invisible to name-based or cross-search tools. Supplement with a web search for candidates who haven't filed yet.
+- **Use `list_filers_by_office` for broad discovery.** For questions like "who has filed for [office]", use `list_filers_by_office` with `recent_only: true`. It sweeps the entire Ethics Commission database by office name and enriches results with campaign balance, status, and campaignId. Takes 10-15 seconds but finds candidates invisible to name-based or cross-search tools. Supplement with a web search for candidates who haven't filed yet.
 - **Office names are inconsistent within Ethics.** A candidate can have different office labels across endpoints. Use `list_office_names` to discover the exact strings the database uses (e.g., "District 50 House" not "State House District 50"). In cross-search tools, use the broadest match possible or search by candidate name instead.
 - **Bridge by name, not ID.** VREMS and Ethics Commission use different ID systems. To connect a VREMS candidate to their Ethics campaign finance data, search by name using `search_filers`. Name variations (nicknames, suffixes, maiden names) may require retrying with last name only.
 - **"Open campaign" ≠ "in office."** A candidate can have an open campaign account for an office they never won or no longer hold. Use VREMS election results (`status: "Elected"`) to determine current officeholders.
-- **Initial Reports are the early signal.** The Ethics Commission requires candidates to file an Initial Report when they start raising or spending money — often weeks or months before the VREMS filing period opens. Look for recent Initial Reports to discover new candidates before they appear in VREMS.
+- **Initial Reports are the early signal.** The Ethics Commission requires candidates to file an Initial Report when they start raising or spending money, often weeks or months before the VREMS filing period opens. Look for recent Initial Reports to discover new candidates before they appear in VREMS.
 - **VREMS is the authority on officeholders.** Ethics Commission tracks financial filings, not election outcomes. Only VREMS shows who filed, who won, and who withdrew.
 - **All data is public.** No API keys or authentication required.
 - **Filing data has processing lag.** Recent campaign activity may not appear until the next filing deadline passes and reports are processed.
@@ -193,12 +196,13 @@ cd sc-elections-mcp
 npm install
 npm run dev      # Run with tsx (hot reload)
 npm run build    # Compile TypeScript to dist/
+npm test         # Run the vitest suite
 npm start        # Run compiled version
 ```
 
 ### Testing
 
-All tools can be tested against the live public APIs — no mocks or API keys needed.
+All tools can be tested against the live public APIs, no mocks or API keys needed.
 
 ```bash
 # Quick smoke test: start the server and verify it connects
@@ -207,7 +211,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 ## Data Coverage
 
-**Ethics Commission** covers anyone who has filed campaign finance reports or Statements of Economic Interest in South Carolina — from statewide offices (Governor, Attorney General) down to local fire districts and school boards. SEI reports include income sources, business interests, gifts, travel, creditors, and lobbyist contacts.
+**Ethics Commission** covers anyone who has filed campaign finance reports or Statements of Economic Interest in South Carolina, from statewide offices (Governor, Attorney General) down to local fire districts and school boards. SEI reports include income sources, business interests, gifts, travel, creditors, and lobbyist contacts.
 
 **SC Votes / VREMS** covers candidate filings for General, Special, and Local elections. The CSV export provides rich contact data (phone, email, address, filing fee) that isn't available from the HTML search alone.
 
