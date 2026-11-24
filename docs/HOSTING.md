@@ -2,7 +2,7 @@
 
 This repository has three MCP entry points. Stdio is still the default, the existing
 `--http` / `MCP_TRANSPORT=http` option starts a long-lived Node HTTP listener, and
-Vercel can build the stateless function in `api/mcp.ts`. Nothing has been deployed.
+Vercel can build the stateless function in `api/mcp.ts`. The Vercel function is deployed and requires a token.
 
 ## Vercel serverless function
 
@@ -131,7 +131,7 @@ The in-memory defaults can be replaced without changing tool handlers:
 No shared backend was added because no backend or credentials were supplied. The circuit
 breaker can remain per instance, but it must not be represented as global.
 
-## Operator decisions before launch
+## Operator decisions
 
 - Decide whether the documented per-instance resilience is acceptable. If not, provide
   and configure shared cache and rate-limit stores before advertising the endpoint.

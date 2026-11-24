@@ -8,7 +8,7 @@ MCP server combining two South Carolina public data sources:
 
 - TypeScript, MCP SDK (`@modelcontextprotocol/sdk`), `node-html-parser`
 - No auth required — all public data, no keys
-- Stdio transport (standard MCP pattern)
+- Stdio transport by default; an HTTP listener and a Vercel function are also available (see docs/HOSTING.md)
 - Node >= 20 required (`getSetCookie()` for VREMS session cookies)
 
 ## API Base URLs
@@ -21,7 +21,11 @@ MCP server combining two South Carolina public data sources:
 ```
 sc-elections-mcp/
 ├── src/
-│   ├── index.ts              # Shebang + server init + tool registration
+│   ├── index.ts              # Shebang + stdio/HTTP mode entry
+│   ├── server.ts             # Server init + tool registration
+│   ├── http-server.ts        # Long-running HTTP listener
+│   ├── serverless-handler.ts # Stateless handler used by the Vercel function
+│   ├── resilience/           # Cache, rate limiter, circuit breaker, upstream fetch
 │   ├── types.ts              # All interfaces (Ethics + VREMS)
 │   ├── api/
 │   │   ├── ethics-client.ts  # HTTP client for ethicsfiling.sc.gov
@@ -36,17 +40,21 @@ sc-elections-mcp/
 │       ├── search.ts         # search_filers, get_filer_profile
 │       ├── campaign.ts       # campaign summary/reports/details/contributions/expenditures
 │       ├── cross-search.ts   # search_expenditures, search_contributions
+│       ├── cross-reference.ts # find_expected_filers
+│       ├── election-results.ts # list_election_events, search_election_results, get_precinct_results
 │       ├── overlap.ts        # find_donor_overlap (cross-candidate donor analysis)
 │       ├── sei.ts            # get_sei_details (aggregates 17 sub-endpoints)
 │       └── vrems.ts          # list_elections, search_candidates, get_candidate_details
-├── tests/                   # vitest unit + smoke tests (62 tests)
+├── api/
+│   └── mcp.ts                # Vercel function entry (hosted transport)
+├── tests/                   # vitest unit + smoke tests (more live beside the source in src/*.test.ts)
 ├── package.json
 ├── tsconfig.json
 ├── CLAUDE.md
 └── API-REFERENCE.md
 ```
 
-## MCP Tools (17 tools)
+## MCP Tools (22 tools)
 
 ### Search & Lookup (Ethics)
 1. **search_filers** — Search for candidates/officials by name. Default limit 50 (0 for all). Use last name only for best results.
@@ -76,6 +84,16 @@ sc-elections-mcp/
 15. **list_elections** — Browse SC elections by type (General/Special/Local) and year. Keyword filter + default limit 50. Use keyword to filter by location (e.g. "Sumter").
 16. **search_candidates** — Search candidates in an election. Default limit 50 (0 for all). Rich data via CSV export. County accepts names ("Greenville") or codes ("23").
 17. **get_candidate_details** — Candidate filing details with document download links (filing form PDF, fee receipt)
+
+### Cross-Reference and Report Search (Ethics + VREMS)
+18. **find_expected_filers** — Cross-reference Ethics open campaign accounts against VREMS ballot filings for a county: who has an Ethics account but has not filed on the ballot.
+19. **search_campaign_reports** — Search campaign disclosure reports across all candidates statewide, for example who filed Initial or Quarterly reports for a given year.
+
+### Election Results (SC Election Commission)
+Certified vote data, 2008 to present. Chain: events, then contests, then precincts.
+20. **list_election_events** — List SC elections from the certified results database; returns event IDs. Optional year filter.
+21. **search_election_results** — Certified results for an event: candidates, vote totals, percentages, winner.
+22. **get_precinct_results** — Precinct-level vote counts and percentages for a specific contest.
 
 ## Recommended Workflow for Broad Candidate Discovery
 
@@ -127,7 +145,7 @@ Test against real APIs — no mocks needed. Good test candidates:
 ```bash
 npm run dev      # Run with tsx (development)
 npm run build    # Compile to dist/
-npm test         # Run vitest (62 tests: 61 unit + 1 smoke)
+npm test         # Run vitest (154 tests, 4 skipped, counted 2026-11-24)
 npm start        # Run compiled version
 npm run pack:mcpb  # Build Desktop Extension (.mcpb) for Claude Desktop
 ```
