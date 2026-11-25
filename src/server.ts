@@ -12,7 +12,7 @@ import { registerElectionResultsTools } from './tools/election-results.js'
 export function createMcpServer(): McpServer {
   const server = new McpServer({
     name: 'sc-elections-mcp',
-    version: '0.9.0',
+    version: '0.9.2',
   }, {
     instructions: [
       'Start search_filers with the exact last name and confirm the filer in the results, which can include partial matches. Use the candidateFilerId and seiFilerId from that search for candidate and SEI lookups.',

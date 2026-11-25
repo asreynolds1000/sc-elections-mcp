@@ -3,7 +3,7 @@
 - **What:** An MCP server with 22 tools over public South Carolina data: SC Ethics Commission campaign finance and Statements of Economic Interest, SC Votes (VREMS) candidate filings, and certified election results. It needs no API keys.
 - **For:** Anyone researching South Carolina candidates, campaign money and results with Claude or another MCP client. Alex Reynolds builds and maintains it. Next steps are tracked privately.
 - **Runs:** As a local stdio server from the `sc-elections-mcp` npm package (`npx -y sc-elections-mcp`). A change reaches users when a new version is published to npm. The same code also runs as a token-protected HTTP function on Vercel (`api/mcp.ts`, see `docs/HOSTING.md`). Data comes live from ethicsfiling.sc.gov, vrems.scvotes.sc.gov and the SC Election Commission results site.
-- **Status:** Live (2026-11-23). npm shows version 0.9.1, and the Vercel endpoint answers 401 without a token, as designed. The last code change was 2026-10-24.
+- **Status:** Live (2026-11-25). npm shows version 0.9.2 (2026-11-25), and the Vercel endpoint answers 401 without a token, as designed. The last code change was 2026-11-25 (tool descriptions and server instructions).
 
 Working notes for agents: `CLAUDE.md`. API details: `API-REFERENCE.md`.
 
