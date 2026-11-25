@@ -73,12 +73,12 @@ export function registerSearchTools(server: McpServer) {
 
   server.tool(
     'list_filers_by_office',
-    'Find candidates and officials who have filed with the SC Ethics Commission for a specific office. Searches the entire filer database by sweeping all 26 letters and filtering by office name. Returns one entry per person with an offices[] array. The filter can match historical offices, so verify the office on each result. May take 10-15 seconds on first call (cached 30 min after). With recent_only=true, enriches results with campaignId, balance, status, and initialReportFiledDate. With active_only=true, returns only filers with an open campaign account (implies recent_only). Use the jurisdiction filter to distinguish city and county offices.',
+    'Find candidates and officials who have filed with the SC Ethics Commission for a specific office. Searches the filer database by sweeping all 26 letters and filtering by office name. Returns one entry per person with an offices[] array. The filter can match historical offices, so verify the office on each result. May take 10-15 seconds on first call (cached 30 min after). With recent_only=true, attempts to enrich up to 50 filers. A successful lookup with a matching campaign adds campaignId, balance, and campaignStatus. With active_only=true, also applies recent_only and keeps only confirmed open campaigns, dropping filers whose status could not be confirmed. Use the jurisdiction filter to distinguish city and county offices.',
     {
       office: z.string().describe('Office name to search for (partial match, e.g. "Greenville County Council", "Governor", "Sheriff")'),
-      recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years and enrich with campaign data. Default: false.'),
+      recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years and attempt campaign enrichment for up to 50 filers. Defaults to false.'),
       active_since: z.number().optional().describe('Only include filers with submissions on or after this year (e.g. 2022). More precise than recent_only.'),
-      active_only: z.boolean().optional().describe('If true, return only filers with an open campaign account. Implies recent_only=true. Cuts noise from closed/historical campaigns.'),
+      active_only: z.boolean().optional().describe('If true, keep only filers with a confirmed open campaign. Implies recent_only=true and drops filers whose status could not be confirmed.'),
       jurisdiction: z.enum(['city', 'county', 'state']).optional().describe('Filter by jurisdiction tier derived from office type. city=City Council/Mayor, county=County Council/Sheriff/Auditor/etc, state=State House/Senate/Governor/etc. Useful when a query like "Greenville" returns both city and county offices.'),
     },
     async ({ office, recent_only, active_since, active_only, jurisdiction }) => {
@@ -181,10 +181,10 @@ export function registerSearchTools(server: McpServer) {
     'Find all candidates/officials who have filed with the SC Ethics Commission in a specific county. Matches by county name in office name (e.g. "Greenville County Council", "Greenville Sheriff") OR by city-to-county mapping from filer address. Returns grouped results like list_filers_by_office. First call may take 10-15 seconds (alphabet sweep). Results cached 30 minutes. City-to-county mapping covers incorporated municipalities; some rural addresses may not match. NOTE: Results mix city-level and county-level offices (e.g. Greenville City Council and Greenville County Council both appear). Use jurisdiction="county" to see only county offices, or jurisdiction="city" for city offices.',
     {
       county: z.string().describe('County name (e.g. "Greenville", "Richland", "Charleston")'),
-      recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years and enrich with campaign data. Default: false.'),
+      recent_only: z.boolean().optional().describe('If true, only return filers with submissions in the last 2 years and attempt campaign enrichment for up to 50 filers. Defaults to false.'),
       active_since: z.number().optional().describe('Only include filers with submissions on or after this year (e.g. 2022).'),
       office_type: z.string().optional().describe('Filter by office type using token matching (e.g. "County Council", "Sheriff", "House"). Order-independent.'),
-      active_only: z.boolean().optional().describe('If true, return only filers with an open campaign account. Implies recent_only=true. Cuts results from ~46 to ~12 for a typical county by removing closed/historical campaigns.'),
+      active_only: z.boolean().optional().describe('If true, keep only filers with a confirmed open campaign. Implies recent_only=true and drops filers whose status could not be confirmed.'),
       jurisdiction: z.enum(['city', 'county', 'state']).optional().describe('Filter by jurisdiction tier. city=City Council/Mayor, county=County Council/Sheriff/Auditor/etc, state=State House/Senate. Solves the city vs county conflation: Greenville has both a City Council and a County Council.'),
     },
     async ({ county, recent_only, active_since, office_type, active_only, jurisdiction }) => {

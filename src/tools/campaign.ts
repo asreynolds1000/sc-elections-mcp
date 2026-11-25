@@ -21,7 +21,7 @@ function formatHeader(context: CampaignContext, count: number, totalLabel: strin
 export function registerCampaignTools(server: McpServer) {
   server.tool(
     'get_campaign_summary',
-    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers. Each office entry includes initialReportFiledDate, balance, and total contributions. An open campaign can belong to someone who never held that office or no longer holds it. Each campaign entry lists its filerId and uses officeId as campaign_id. If a lookup is empty, search by last name again and check the open and closed entries for the office and cycle you want.',
+    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers. An open campaign can belong to someone who never held that office or no longer holds it. Each campaign entry lists its filerId and uses officeId as campaign_id. If a lookup is empty, search by last name again and check the open and closed entries for the office and cycle you want.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
     },
@@ -42,7 +42,7 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_campaign_reports',
-    'List filed campaign disclosure reports. The tool can choose a default campaign or use an office hint. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. If the result is empty, search by last name again and verify the campaign.',
+    'List filed campaign disclosure reports. The tool can choose a default campaign or use an office hint. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. An empty result can also mean the Ethics API returned an error because the client treats non-success HTTP responses as empty lists. Repeat the call and verify the campaign before concluding there are no filings.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
       campaign_id: z.number().optional().describe('Pass the campaignId for the office and cycle you want from get_campaign_summary.'),
@@ -99,7 +99,7 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_contributions',
-    'Get contributions for a candidate\'s campaign with donor names, amounts, dates, and types. Results identify the selected campaign. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. If the result is empty, search by last name again and verify the campaign.\n\nUse summary=true for top 20 donors, totals by type, and a date range when available. Use full records to verify transaction dates. Filter with year or min_amount. The default limit is 200 records. Use limit=0 for all matching records returned by SC Ethics.',
+    'Get contributions for a candidate\'s campaign with donor names, amounts, dates, and types. Results identify the selected campaign. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. An empty result can also mean the Ethics API returned an error because the client treats non-success HTTP responses as empty lists. Repeat the call and verify the campaign before concluding there are no matching contributions.\n\nUse summary=true for top 20 donors, totals by type, and a date range when available. Use full records to verify transaction dates. Filter with year or min_amount. The default limit is 200 records. Use limit=0 for all matching records returned by SC Ethics.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
       campaign_id: z.number().optional().describe('Pass the campaignId for the office and cycle you want from get_campaign_summary.'),
@@ -172,7 +172,7 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_expenditures',
-    'Get expenditures for a candidate\'s campaign with vendor names, amounts, dates, and types. Results identify the selected campaign. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. If the result is empty, search by last name again and verify the campaign.\n\nUse summary=true for top 20 vendors, totals by type, and a date range when available. Use full records to verify transaction dates. Filter with year or min_amount. The default limit is 200 records. Use limit=0 for all matching records returned by SC Ethics.',
+    'Get expenditures for a candidate\'s campaign with vendor names, amounts, dates, and types. Results identify the selected campaign. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. An empty result can also mean the Ethics API returned an error because the client treats non-success HTTP responses as empty lists. Repeat the call and verify the campaign before concluding there are no matching expenditures.\n\nUse summary=true for top 20 vendors, totals by type, and a date range when available. Use full records to verify transaction dates. Filter with year or min_amount. The default limit is 200 records. Use limit=0 for all matching records returned by SC Ethics.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
       campaign_id: z.number().optional().describe('Pass the campaignId for the office and cycle you want from get_campaign_summary.'),

@@ -54,7 +54,7 @@ Requires **Node.js >= 20**.
 | Tool | Description | Key params |
 |------|-------------|------------|
 | `search_filers` | Search candidates and officials (default limit 50). Start with the exact last name and verify partial matches. | `name`, `limit`? |
-| `list_filers_by_office` | Find filers by office and enrich with balance and campaignId when `recent_only` is set. Verify the office on each result because the filter can match historical offices. | `office`, `recent_only` |
+| `list_filers_by_office` | Find filers by office, including historical offices. With `recent_only` or `active_only`, attempts campaign enrichment for up to 50 filers. `active_only` keeps only filers with a confirmed open campaign and drops filers whose status could not be confirmed. | `office`, `recent_only`?, `active_only`? |
 | `get_filer_profile` | Full profile: address, phone, positions, offices | `candidate_filer_id`, `sei_filer_id` |
 | `list_office_names` | Discover exact office name strings from the database (e.g. "District 50 House") | `keyword`? |
 | `list_filers_by_county` | Find all candidates/officials who have filed with the Ethics Commission in a specific county | `county` |
@@ -69,13 +69,17 @@ Requires **Node.js >= 20**.
 | `get_contributions` | Contributions for the selected campaign. Pass the explicit `campaign_id` and use full records to verify dates. | `candidate_filer_id`, `campaign_id`?, `office`?, `summary`?, `year`?, `min_amount`?, `limit`? |
 | `get_expenditures` | Expenditures for the selected campaign. Pass the explicit `campaign_id` and use full records to verify dates. | `candidate_filer_id`, `campaign_id`?, `office`?, `summary`?, `year`?, `min_amount`?, `limit`? |
 
+An empty result from `get_campaign_reports`, `get_contributions`, or `get_expenditures` can also mean the Ethics API returned an error. The client turns non-success HTTP responses into empty lists. Repeat the call and verify the selected campaign before concluding there are no filings or matching transactions.
+
 ### Cross-Candidate Search
 
 | Tool | Description | Key params |
 |------|-------------|------------|
 | `search_expenditures` | Search expenditures statewide (default limit 200). Query by year, check for truncation, and verify each result's office. Summaries omit dates. | `candidate`, `vendor_name`, `office`, `year`, `amount`, `summary`?, `limit`? |
-| `search_contributions` | Search contributions statewide (default limit 200). Provide a filter besides office and verify each result's office. Query by year, check for truncation, and use full records for dates. | `candidate`, `contributor_name`, `office`, `year`, `amount`, `summary`?, `limit`? |
+| `search_contributions` | Search contributions statewide (default limit 200). Provide a filter besides office. For office-specific analysis, use full records and verify the office on each row. Query by year and check for truncation. | `candidate`, `contributor_name`, `office`, `year`, `amount`, `summary`?, `limit`? |
 | `search_campaign_reports` | Search campaign disclosure reports across ALL candidates statewide (who filed Initial/Quarterly reports for a given year) | `year`, `report_type`?, `limit`? |
+
+Omit `office` when using `summary=true` with `search_contributions`. Summary totals cover every row returned by the Ethics API, without applying an office filter to those rows. Do not use a contribution summary total as the total for one office. Use full records to verify transaction dates.
 
 ### Statement of Economic Interest
 
@@ -141,7 +145,7 @@ VREMS tools use: electionId → candidateId
    → Positions, income sources, business interests
 ```
 
-For a specific office and cycle, pass the explicit `campaign_id` from `get_campaign_summary`. If a lookup is empty, search by last name again and check both open and closed campaign entries before drawing conclusions.
+For a specific office and cycle, check both open and closed entries in `get_campaign_summary` and pass the explicit `campaign_id`. If reports or transactions come back empty, repeat that call before drawing conclusions.
 
 ### Research a Race (VREMS-first)
 
@@ -179,7 +183,7 @@ For staggered terms (e.g. county council), check multiple election cycles to fin
 
 These two data sources are independent systems with no shared identifiers:
 
-- **Use `list_filers_by_office` for broad discovery.** For questions like "who has filed for [office]", use `list_filers_by_office` with `recent_only: true`. It sweeps the entire Ethics Commission database by office name and enriches results with campaign balance, status, and campaignId. Takes 10-15 seconds but finds candidates invisible to name-based or cross-search tools. Supplement with a web search for candidates who haven't filed yet.
+- **Use `list_filers_by_office` for broad discovery.** For questions like "who has filed for [office]", use `list_filers_by_office` with `recent_only: true`. It sweeps the Ethics Commission filer database by office name and attempts campaign enrichment for up to 50 filers. A successful lookup with a matching campaign adds `campaignId`, `balance`, and `campaignStatus`. With `active_only: true`, filers whose status could not be confirmed are dropped, including those skipped because of the cap. The first search may take 10-15 seconds. Supplement with a web search for candidates who haven't filed yet.
 - **Office names are inconsistent within Ethics.** A candidate can have different office labels across endpoints. Use `list_office_names` to discover the exact strings the database uses (e.g., "District 50 House" not "State House District 50"). In cross-search tools, use the broadest match possible or search by candidate name instead.
 - **Statewide transaction lists can truncate at 60,000 characters, even with `limit=0`.** Query one year at a time and check each response for truncation. For a specific campaign, use `get_contributions` or `get_expenditures` with `limit=0` for all matching records returned by SC Ethics.
 - **Bridge by name, not ID.** VREMS and Ethics Commission use different ID systems. To connect a VREMS candidate to their Ethics campaign finance data, search by name using `search_filers`. Name variations (nicknames, suffixes, maiden names) may require retrying with last name only.

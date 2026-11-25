@@ -174,7 +174,7 @@ export function registerCrossSearchTools(server: McpServer) {
 
   server.tool(
     'search_contributions',
-    'Search contributions across all candidates statewide. The office filter is unreliable, so provide another filter and verify the office on each result. The default limit is 200 records. Use slim=true to strip address and occupation fields or summary=true for totals without dates. Lists can truncate at 60,000 characters even with limit=0, so query one year at a time and check for truncation.',
+    'Search contributions across all candidates statewide. Provide a filter besides office. For office-specific analysis, use full records and verify the office on each row because the upstream office filter is unreliable. Omit office when using summary=true. Summary totals cover every row returned by the Ethics API, without applying an office filter to those rows. Do not use a summary total as the total for one office. Summaries omit dates. The default limit for lists is 200 records. Use slim=true to strip address and occupation fields. Lists can truncate at 60,000 characters even with limit=0, so query one year at a time and check for truncation.',
     {
       candidate: z.string().optional().describe('Candidate name filter (partial match)'),
       office: z.string().optional().describe('Office name filter (partial match)'),
@@ -183,7 +183,7 @@ export function registerCrossSearchTools(server: McpServer) {
       amount: z.number().optional().describe('Minimum amount filter'),
       limit: z.number().optional().describe('Max results to return (default 200). With 0, only the 60,000-character response budget applies to the list.'),
       slim: z.boolean().optional().describe('If true, strip address/occupation/group fields to reduce response size.'),
-      summary: z.boolean().optional().describe('If true, group by candidate and return totals without dates.'),
+      summary: z.boolean().optional().describe('If true, group by candidate and total every row returned by the Ethics API without filtering by office. Omit office in summary mode. Do not use summary totals as office totals.'),
     },
     async ({ candidate, office, contributor_name, year, amount, limit, slim, summary }) => {
       try {
