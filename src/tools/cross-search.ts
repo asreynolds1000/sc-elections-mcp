@@ -95,17 +95,17 @@ function applyCharBudget<T>(output: T[]): { finalText: string; budgetWarning: st
 export function registerCrossSearchTools(server: McpServer) {
   server.tool(
     'search_expenditures',
-    'Search expenditures across ALL candidates statewide. At least one filter required. Default limit 200 (0 for all). Use slim=true to strip address fields, summary=true for aggregated view. Responses auto-truncate at 60K chars. IMPORTANT: Office names in results are inconsistent — use broad office filters or omit office and filter by candidate name instead.',
+    'Search expenditures across all candidates statewide. At least one filter is required. The default limit is 200 records. Use slim=true to strip addresses or summary=true for totals without dates. Lists can truncate at 60,000 characters even with limit=0, so query one year at a time and check for truncation. Verify the office on each result because labels vary across endpoints.',
     {
       candidate: z.string().optional().describe('Candidate name filter (partial match)'),
       office: z.string().optional().describe('Office name filter (partial match)'),
       vendor_name: z.string().optional().describe('Vendor/payee name filter (partial match)'),
-      year: z.number().optional().describe('Election year filter (e.g. 2024). Omit for all years.'),
+      year: z.number().optional().describe('Year filter. Omit to search across years.'),
       amount: z.number().optional().describe('Minimum amount filter'),
       description: z.string().optional().describe('Expenditure description filter'),
-      limit: z.number().optional().describe('Max results to return (default 200, 0 for all).'),
+      limit: z.number().optional().describe('Max results to return (default 200). With 0, only the 60,000-character response budget applies to the list.'),
       slim: z.boolean().optional().describe('If true, strip address fields to reduce response size.'),
-      summary: z.boolean().optional().describe('If true, group by vendor and return totals instead of individual records.'),
+      summary: z.boolean().optional().describe('If true, group by vendor and return totals without dates.'),
     },
     async ({ candidate, office, vendor_name, year, amount, description, limit, slim, summary }) => {
       try {
@@ -174,16 +174,16 @@ export function registerCrossSearchTools(server: McpServer) {
 
   server.tool(
     'search_contributions',
-    'Search contributions across ALL candidates statewide. At least one filter besides office required (office filter is broken server-side). Default limit 200 (0 for all). Use slim=true to strip address/occupation fields, summary=true for aggregated view. Responses auto-truncate at 60K chars.',
+    'Search contributions across all candidates statewide. The office filter is unreliable, so provide another filter and verify the office on each result. The default limit is 200 records. Use slim=true to strip address and occupation fields or summary=true for totals without dates. Lists can truncate at 60,000 characters even with limit=0, so query one year at a time and check for truncation.',
     {
       candidate: z.string().optional().describe('Candidate name filter (partial match)'),
       office: z.string().optional().describe('Office name filter (partial match)'),
       contributor_name: z.string().optional().describe('Contributor/donor name filter (partial match)'),
-      year: z.number().optional().describe('Election year filter (e.g. 2024). Omit for all years.'),
+      year: z.number().optional().describe('Year filter. Omit to search across years.'),
       amount: z.number().optional().describe('Minimum amount filter'),
-      limit: z.number().optional().describe('Max results to return (default 200, 0 for all).'),
+      limit: z.number().optional().describe('Max results to return (default 200). With 0, only the 60,000-character response budget applies to the list.'),
       slim: z.boolean().optional().describe('If true, strip address/occupation/group fields to reduce response size.'),
-      summary: z.boolean().optional().describe('If true, group by candidate and return totals instead of individual records.'),
+      summary: z.boolean().optional().describe('If true, group by candidate and return totals without dates.'),
     },
     async ({ candidate, office, contributor_name, year, amount, limit, slim, summary }) => {
       try {

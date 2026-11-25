@@ -148,11 +148,11 @@ export function computeOverlap(
 export function registerOverlapTools(server: McpServer) {
   server.tool(
     'find_donor_overlap',
-    'Find donors who contributed to multiple candidates. Three modes:\n1. By name: pass primary_name + comparison_names (resolves candidates automatically)\n2. By ID: pass primary_candidate_filer_id + comparison_candidate_filer_ids\n3. Office-based: pass primary ID/name + office to auto-discover comparison candidates (max 25)\nUse county param to disambiguate common names (e.g. county="Greenville"). Fetches contributions in parallel and computes intersection. Name matching normalizes "Last, First" vs "First Last", strips suffixes (Jr, Sr, etc), and is case-insensitive.',
+    'Find donors who contributed to multiple candidates. Three modes:\n1. By name: pass primary_name + comparison_names (resolves candidates automatically)\n2. By ID: pass primary_candidate_filer_id + comparison_candidate_filer_ids\n3. Office-based: pass primary ID/name + office to auto-discover comparison candidates (max 25)\nUse county param to disambiguate common names (e.g. county="Greenville"). Fetches contributions in parallel and computes intersection. Name matching normalizes "Last, First" vs "First Last", strips suffixes (Jr, Sr, etc), and is case-insensitive. Pass primary_campaign_id to select the primary candidate\'s campaign for the office and cycle you want.',
     {
       primary_candidate_filer_id: z.number().optional().describe('candidateFilerId of the primary candidate. Optional if primary_name is provided.'),
       primary_name: z.string().optional().describe('Full name of primary candidate (e.g. "Steve Shaw"). Alternative to primary_candidate_filer_id — resolves the ID automatically.'),
-      primary_campaign_id: z.number().optional().describe('campaignId for primary — optional, auto-resolved'),
+      primary_campaign_id: z.number().optional().describe('Pass the campaignId for the primary office and cycle you want.'),
       primary_office: z.string().optional().describe('Office hint for primary candidate'),
       comparison_candidate_filer_ids: z.array(z.number()).max(20).optional().describe('Array of up to 20 candidateFilerId values to compare against. Omit if using office param or comparison_names.'),
       comparison_names: z.array(z.string()).max(20).optional().describe('Names of candidates to compare (e.g. ["Jason Elliott", "Joe Smith"]). Alternative to comparison_candidate_filer_ids.'),

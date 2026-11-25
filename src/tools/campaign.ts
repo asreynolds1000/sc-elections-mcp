@@ -21,7 +21,7 @@ function formatHeader(context: CampaignContext, count: number, totalLabel: strin
 export function registerCampaignTools(server: McpServer) {
   server.tool(
     'get_campaign_summary',
-    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers. Each office entry includes initialReportFiledDate (when the candidate first filed — use this to find new candidates entering races), balance, and total contributions. Note: an open campaign does not necessarily mean the person currently holds that office. A candidate may have different filerIds for different offices — the contribution/expenditure tools handle this automatically.',
+    'Get campaign report summary for a candidate showing open/closed offices, balances, and contribution totals. Use candidateFilerId from search_filers. Each office entry includes initialReportFiledDate, balance, and total contributions. An open campaign can belong to someone who never held that office or no longer holds it. Each campaign entry lists its filerId and uses officeId as campaign_id. If a lookup is empty, search by last name again and check the open and closed entries for the office and cycle you want.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
     },
@@ -42,10 +42,10 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_campaign_reports',
-    'List filed campaign disclosure reports. campaign_id is optional — auto-resolved for single-campaign candidates, or use office hint to disambiguate (e.g. office="County Council").',
+    'List filed campaign disclosure reports. The tool can choose a default campaign or use an office hint. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. If the result is empty, search by last name again and verify the campaign.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
-      campaign_id: z.number().optional().describe('campaignId — optional, auto-resolved if candidate has one campaign'),
+      campaign_id: z.number().optional().describe('Pass the campaignId for the office and cycle you want from get_campaign_summary.'),
       office: z.string().optional().describe('Office hint to disambiguate when multiple campaigns exist (e.g. "County Council", "Governor")'),
     },
     async ({ candidate_filer_id, campaign_id, office }) => {
@@ -99,10 +99,10 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_contributions',
-    'Get contributions for a candidate\'s campaign. Returns donor names, amounts, dates, types. Every response includes a metadata header identifying the candidate/office for verification.\n\ncampaign_id is optional: omit it for single-campaign candidates (auto-resolved). Provide it when a candidate has multiple campaigns, or use the office hint to disambiguate (e.g. office="County Council").\n\nUse summary=true for high-volume candidates — returns top 20 donors, totals by type, date range. Use year/min_amount to filter. Default limit is 200 records; pass limit=0 for all.',
+    'Get contributions for a candidate\'s campaign with donor names, amounts, dates, and types. Results identify the selected campaign. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. If the result is empty, search by last name again and verify the campaign.\n\nUse summary=true for top 20 donors, totals by type, and a date range when available. Use full records to verify transaction dates. Filter with year or min_amount. The default limit is 200 records. Use limit=0 for all matching records returned by SC Ethics.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
-      campaign_id: z.number().optional().describe('campaignId — optional, auto-resolved if candidate has one campaign'),
+      campaign_id: z.number().optional().describe('Pass the campaignId for the office and cycle you want from get_campaign_summary.'),
       office: z.string().optional().describe('Office hint to disambiguate when multiple campaigns exist (e.g. "County Council", "Governor")'),
       summary: z.boolean().optional().describe('If true, return aggregated top-20 view instead of full records'),
       year: z.number().optional().describe('Filter to contributions in this year only'),
@@ -172,10 +172,10 @@ export function registerCampaignTools(server: McpServer) {
 
   server.tool(
     'get_expenditures',
-    'Get expenditures for a candidate\'s campaign. Returns vendor names, amounts, dates, types. Every response includes a metadata header identifying the candidate/office for verification.\n\ncampaign_id is optional: omit it for single-campaign candidates (auto-resolved). Provide it when a candidate has multiple campaigns, or use the office hint to disambiguate (e.g. office="County Council").\n\nUse summary=true for high-volume candidates — returns top 20 vendors, totals by type, date range. Use year/min_amount to filter. Default limit is 200 records; pass limit=0 for all.',
+    'Get expenditures for a candidate\'s campaign with vendor names, amounts, dates, and types. Results identify the selected campaign. Pass the explicit campaign_id from get_campaign_summary for the office and cycle you want. If the result is empty, search by last name again and verify the campaign.\n\nUse summary=true for top 20 vendors, totals by type, and a date range when available. Use full records to verify transaction dates. Filter with year or min_amount. The default limit is 200 records. Use limit=0 for all matching records returned by SC Ethics.',
     {
       candidate_filer_id: z.number().describe('candidateFilerId from search_filers results'),
-      campaign_id: z.number().optional().describe('campaignId — optional, auto-resolved if candidate has one campaign'),
+      campaign_id: z.number().optional().describe('Pass the campaignId for the office and cycle you want from get_campaign_summary.'),
       office: z.string().optional().describe('Office hint to disambiguate when multiple campaigns exist (e.g. "County Council", "Governor")'),
       summary: z.boolean().optional().describe('If true, return aggregated top-20 view instead of full records'),
       year: z.number().optional().describe('Filter to expenditures in this year only'),

@@ -53,8 +53,8 @@ Requires **Node.js >= 20**.
 
 | Tool | Description | Key params |
 |------|-------------|------------|
-| `search_filers` | Search candidates/officials by name (default limit 50, use last name only) | `name`, `limit`? |
-| `list_filers_by_office` | Find all filers for an office; enriches with balance/campaignId when recent_only | `office`, `recent_only` |
+| `search_filers` | Search candidates and officials (default limit 50). Start with the exact last name and verify partial matches. | `name`, `limit`? |
+| `list_filers_by_office` | Find filers by office and enrich with balance and campaignId when `recent_only` is set. Verify the office on each result because the filter can match historical offices. | `office`, `recent_only` |
 | `get_filer_profile` | Full profile: address, phone, positions, offices | `candidate_filer_id`, `sei_filer_id` |
 | `list_office_names` | Discover exact office name strings from the database (e.g. "District 50 House") | `keyword`? |
 | `list_filers_by_county` | Find all candidates/officials who have filed with the Ethics Commission in a specific county | `county` |
@@ -63,18 +63,18 @@ Requires **Node.js >= 20**.
 
 | Tool | Description | Key params |
 |------|-------------|------------|
-| `get_campaign_summary` | Open/closed offices, balances, contribution totals | `candidate_filer_id` |
-| `get_campaign_reports` | List filed reports (campaign_id auto-resolved) | `candidate_filer_id`, `campaign_id`?, `office`? |
+| `get_campaign_summary` | Open and closed campaigns, balances, contribution totals. Use the matching entry's `officeId` as `campaign_id`. | `candidate_filer_id` |
+| `get_campaign_reports` | List filed reports. Pass the explicit `campaign_id` for the office and cycle you want. | `candidate_filer_id`, `campaign_id`?, `office`? |
 | `get_campaign_report_details` | Detailed income/expenditure breakdown for a report | `report_id` |
-| `get_contributions` | Contributions with metadata header, summary mode, filters | `candidate_filer_id`, `campaign_id`?, `office`?, `summary`?, `year`?, `min_amount`?, `limit`? |
-| `get_expenditures` | Expenditures with metadata header, summary mode, filters | `candidate_filer_id`, `campaign_id`?, `office`?, `summary`?, `year`?, `min_amount`?, `limit`? |
+| `get_contributions` | Contributions for the selected campaign. Pass the explicit `campaign_id` and use full records to verify dates. | `candidate_filer_id`, `campaign_id`?, `office`?, `summary`?, `year`?, `min_amount`?, `limit`? |
+| `get_expenditures` | Expenditures for the selected campaign. Pass the explicit `campaign_id` and use full records to verify dates. | `candidate_filer_id`, `campaign_id`?, `office`?, `summary`?, `year`?, `min_amount`?, `limit`? |
 
 ### Cross-Candidate Search
 
 | Tool | Description | Key params |
 |------|-------------|------------|
-| `search_expenditures` | Search expenditures across ALL candidates statewide (default limit 200) | `candidate`, `vendor_name`, `office`, `year`, `amount`, `limit`? |
-| `search_contributions` | Search contributions across ALL candidates statewide (default limit 200) | `candidate`, `contributor_name`, `office`, `year`, `amount`, `limit`? |
+| `search_expenditures` | Search expenditures statewide (default limit 200). Query by year, check for truncation, and verify each result's office. Summaries omit dates. | `candidate`, `vendor_name`, `office`, `year`, `amount`, `summary`?, `limit`? |
+| `search_contributions` | Search contributions statewide (default limit 200). Provide a filter besides office and verify each result's office. Query by year, check for truncation, and use full records for dates. | `candidate`, `contributor_name`, `office`, `year`, `amount`, `summary`?, `limit`? |
 | `search_campaign_reports` | Search campaign disclosure reports across ALL candidates statewide (who filed Initial/Quarterly reports for a given year) | `year`, `report_type`?, `limit`? |
 
 ### Statement of Economic Interest
@@ -106,18 +106,18 @@ Certified vote data (2008-present), distinct from the Ethics/VREMS sources above
 | Tool | Description | Key params |
 |------|-------------|------------|
 | `find_expected_filers` | Cross-reference Ethics open campaign accounts vs VREMS ballot filings for a county ("who has an Ethics account but hasn't filed on the ballot") | `county` |
-| `find_donor_overlap` | Find donors who gave to multiple candidates. Three modes: by name, by campaign ID, or by office | `primary_name` + `comparison_names`, or IDs, or `office` |
+| `find_donor_overlap` | Find donors who gave to multiple candidates by name, filer ID, or office. Use `primary_campaign_id` to select a specific primary campaign. | `primary_name` + `comparison_names`, or filer IDs, or `office`. Optional `primary_campaign_id`. |
 
 ### How IDs connect
 
 ```
-search_filers("name")
+search_filers("last name")
   → candidateFilerId, seiFilerId
 
 get_filer_profile(candidateFilerId, seiFilerId)
   → campaignId (from openOffices / closedOffices)
 
-Campaign tools use: campaignId + candidateFilerId
+Campaign tool inputs: campaign_id + candidate_filer_id from search_filers
 SEI tools use: seiFilerId
 VREMS tools use: electionId → candidateId
 ```
@@ -132,16 +132,16 @@ VREMS tools use: electionId → candidateId
 
 2. get_contributions(candidate_filer_id: 27353, office: "Governor", summary: true)
    → Auto-resolves campaignId, returns top 20 donors + totals
-   → Metadata header confirms: "Henry McMaster, Governor"
+   → The summary identifies the selected campaign
 
 3. get_campaign_reports(candidate_filer_id: 27353)
-   → Auto-resolves to most recent campaign
+   → The resolver prefers a single open campaign and may choose a different campaign than the one you want
 
 4. get_sei_details(6579)
    → Positions, income sources, business interests
 ```
 
-For candidates with multiple campaigns, use `office` hint or explicit `campaign_id`.
+For a specific office and cycle, pass the explicit `campaign_id` from `get_campaign_summary`. If a lookup is empty, search by last name again and check both open and closed campaign entries before drawing conclusions.
 
 ### Research a Race (VREMS-first)
 
@@ -166,13 +166,13 @@ For staggered terms (e.g. county council), check multiple election cycles to fin
 
 ```
 1. search_expenditures({ vendor_name: "printing", year: 2024 })
-   → All candidates who paid printing vendors in 2024
+   → Matching expenditure records. Check for truncation.
 
 2. search_contributions({ contributor_name: "smith", office: "Governor" })
-   → All contributions from "smith" to Governor races
+   → Matching contribution records. Check each result's office.
 
 3. search_expenditures({ candidate: "haley" })
-   → Everything Haley's campaigns spent money on
+   → Matching expenditure records across years. Query by year if the results truncate.
 ```
 
 ## Caveats
@@ -181,6 +181,7 @@ These two data sources are independent systems with no shared identifiers:
 
 - **Use `list_filers_by_office` for broad discovery.** For questions like "who has filed for [office]", use `list_filers_by_office` with `recent_only: true`. It sweeps the entire Ethics Commission database by office name and enriches results with campaign balance, status, and campaignId. Takes 10-15 seconds but finds candidates invisible to name-based or cross-search tools. Supplement with a web search for candidates who haven't filed yet.
 - **Office names are inconsistent within Ethics.** A candidate can have different office labels across endpoints. Use `list_office_names` to discover the exact strings the database uses (e.g., "District 50 House" not "State House District 50"). In cross-search tools, use the broadest match possible or search by candidate name instead.
+- **Statewide transaction lists can truncate at 60,000 characters, even with `limit=0`.** Query one year at a time and check each response for truncation. For a specific campaign, use `get_contributions` or `get_expenditures` with `limit=0` for all matching records returned by SC Ethics.
 - **Bridge by name, not ID.** VREMS and Ethics Commission use different ID systems. To connect a VREMS candidate to their Ethics campaign finance data, search by name using `search_filers`. Name variations (nicknames, suffixes, maiden names) may require retrying with last name only.
 - **"Open campaign" ≠ "in office."** A candidate can have an open campaign account for an office they never won or no longer hold. Use VREMS election results (`status: "Elected"`) to determine current officeholders.
 - **Initial Reports are the early signal.** The Ethics Commission requires candidates to file an Initial Report when they start raising or spending money, often weeks or months before the VREMS filing period opens. Look for recent Initial Reports to discover new candidates before they appear in VREMS.
